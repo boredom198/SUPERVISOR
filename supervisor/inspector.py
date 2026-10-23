@@ -83,9 +83,10 @@ class CodeInspector:
                 self.generic_visit(node)
 
             def visit_ExceptHandler(self, node: ast.ExceptHandler):
-                # Check for bare except or pass-only except
+                # Check for bare except or pass-only except on general Exception/BaseException
                 if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
-                    self.issues.append(("silent_pass_except", node.lineno, "Bare or silent `except: pass` block"))
+                    if node.type is None or (isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException")):
+                        self.issues.append(("silent_pass_except", node.lineno, "Bare or silent `except: pass` block"))
                 self.generic_visit(node)
 
         visitor = ASTVisitor()
@@ -194,32 +195,61 @@ class CodeInspector:
         return findings
 
     def inspect_incomplete_implementations(self, rel_path: str, content: str) -> List[Finding]:
-        """Detects stub functions, TODO comments, and unimplemented placeholders."""
+        """Detects stub functions, TODO comments, and unimplemented placeholders using AST analysis."""
         findings: List[Finding] = []
-        # Check for NotImplementedError in non-abstract methods
-        lines = content.splitlines()
-        for i, line in enumerate(lines, start=1):
-            stripped = line.strip()
-            if "raise NotImplementedError" in stripped and not any(k in stripped for k in ("abstractmethod", "interface")):
-                findings.append(
-                    Finding(
-                        finding_id=f"REQ-{abs(hash(rel_path + str(i))) % 10000:04d}",
-                        severity=Severity.HIGH,
-                        category=Category.MISSING_REQUIREMENT,
-                        file_path=rel_path,
-                        line_number=i,
-                        description="Unimplemented placeholder (`raise NotImplementedError`) in non-abstract code.",
-                        evidence=f"Line {i}: {stripped}",
-                        why_it_matters="Incomplete implementations cause runtime failures when the code path is exercised.",
-                        recommended_correction="Provide the complete implementation of the method or function.",
-                        verification_method="Functional test execution",
-                        status=FindingStatus.CONFIRMED,
-                    )
+        try:
+            tree = ast.parse(content, filename=rel_path)
+        except SyntaxError:
+            return findings
+
+        class NotImplementedVisitor(ast.NodeVisitor):
+            def __init__(self):
+                self.issues = []
+
+            def visit_FunctionDef(self, node: ast.FunctionDef):
+                # Ignore abstract methods or protocols
+                is_abstract = any(
+                    (isinstance(d, ast.Name) and d.id in ("abstractmethod", "abstractproperty"))
+                    or (isinstance(d, ast.Attribute) and d.attr in ("abstractmethod", "abstractproperty"))
+                    for d in node.decorator_list
                 )
+                if not is_abstract:
+                    for child in ast.walk(node):
+                        if isinstance(child, ast.Raise) and child.exc:
+                            name = ""
+                            if isinstance(child.exc, ast.Name):
+                                name = child.exc.id
+                            elif isinstance(child.exc, ast.Call) and isinstance(child.exc.func, ast.Name):
+                                name = child.exc.func.id
+                            if name == "NotImplementedError":
+                                self.issues.append((node.name, child.lineno))
+                self.generic_visit(node)
+
+        visitor = NotImplementedVisitor()
+        visitor.visit(tree)
+
+        for func_name, lineno in visitor.issues:
+            findings.append(
+                Finding(
+                    finding_id=f"REQ-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
+                    severity=Severity.HIGH,
+                    category=Category.MISSING_REQUIREMENT,
+                    file_path=rel_path,
+                    line_number=lineno,
+                    description=f"Unimplemented placeholder (`raise NotImplementedError`) in non-abstract function `{func_name}`.",
+                    evidence=f"Line {lineno}: function `{func_name}` raises NotImplementedError",
+                    why_it_matters="Incomplete implementations cause runtime failures when the code path is exercised.",
+                    recommended_correction=f"Provide the complete implementation of `{func_name}`.",
+                    verification_method="Functional test execution",
+                    status=FindingStatus.CONFIRMED,
+                )
+            )
         return findings
 
     def run_tests(self, test_command: Optional[str] = None) -> List[TestResult]:
         """Executes actual tests in the workspace and records genuine results."""
+        import shlex
+
         results: List[TestResult] = []
 
         commands_to_try: List[str] = []
@@ -237,15 +267,17 @@ class CodeInspector:
                     data = json.loads(pkg_json.read_text(encoding="utf-8"))
                     if "test" in data.get("scripts", {}):
                         commands_to_try.append("npm test")
-                except Exception:
-                    pass
+                except (json.JSONDecodeError, OSError):
+                    data = {}
 
         for cmd in commands_to_try:
             start_t = time.perf_counter()
             try:
+                # Use shlex to safely parse args and execute with shell=False
+                args = shlex.split(cmd, posix=False) if os.name == "nt" else shlex.split(cmd)
                 proc = subprocess.run(
-                    cmd,
-                    shell=True,
+                    args,
+                    shell=False,
                     cwd=str(self.workspace_root),
                     capture_output=True,
                     text=True,

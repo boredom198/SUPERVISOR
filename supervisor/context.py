@@ -91,8 +91,8 @@ class ContextCollector:
                         return entry["content"]
                 except Exception:
                     continue
-        except Exception:
-            pass
+        except (OSError, json.JSONDecodeError):
+            return None
         return None
 
     def parse_requirements(self, prompt: str) -> List[str]:
@@ -167,8 +167,8 @@ class ContextCollector:
                     check=False,
                 )
                 diff_text = diff_res2.stdout
-        except Exception:
-            pass
+        except (subprocess.SubprocessError, OSError):
+            diff_text = ""
 
         return True, changed, untracked, diff_text
 
@@ -182,8 +182,8 @@ class ContextCollector:
                 if file_path.is_file():
                     try:
                         contents[p] = file_path.read_text(encoding="utf-8", errors="replace")
-                    except Exception:
-                        pass
+                    except OSError:
+                        contents[p] = ""
             return contents
 
         # Scan workspace recursively, respecting ignored directories
@@ -196,8 +196,8 @@ class ContextCollector:
                 try:
                     if fpath.stat().st_size <= 1_000_000:
                         contents[rel] = fpath.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    pass
+                except OSError:
+                    contents[rel] = ""
 
         return contents
 
