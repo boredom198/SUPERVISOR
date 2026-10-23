@@ -65,3 +65,4 @@ From workspace inspection and environment metadata:
 1. **Automatic Supervision Guarantee**: The `Stop` hook in `.agents/hooks.json` is the **only authoritative mechanism** capable of turning a subjective, prompt-guided model into a deterministically supervised loop.
 2. **Defect Repair Without User Prompts**: When the `Stop` hook returns `{"decision": "continue", "reason": "<directives>"}`, Antigravity resumes the agent turn with the directives as system context.
 3. **Loop Safety**: Hard-coded state logic in `.supervisor/state.json` guarantees that no infinite loop can occur, halting safely at `max_retries`.
+

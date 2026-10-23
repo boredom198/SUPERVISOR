@@ -75,3 +75,4 @@ flowchart TD
 1. **Review Engine Scope**: Should the review engine rely exclusively on deterministic AST and static analysis, or also support LLM-assisted semantic diff evaluation?
 2. **Subagent Delegation Policy**: At what threshold of task complexity should the orchestrator spin up an independent `supervisor-auditor` subagent rather than running the local Python inspector?
 3. **State Storage Location**: Ensure `.supervisor/` remains cleanly git-ignored and portable across Windows, macOS, and Linux without file-locking issues.
+
