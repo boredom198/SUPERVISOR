@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,28 +56,51 @@ class AntigravityAdapter:
         # 3. Load state
         state_mgr = StateManager(target_workspace)
         curr_state = state_mgr.load()
+        orchestrator = SupervisorOrchestrator(target_workspace)
 
-        # Terminal state check
+        # Terminal state check: do not reuse stale success if new changes were made
         if curr_state.state in {
             LifecycleState.PASSED,
             LifecycleState.RETRY_LIMIT_REACHED,
             LifecycleState.BLOCKED,
         }:
-            return {
-                "decision": "allow",
-                "reason": f"SUPERVISOR session already concluded with state: {curr_state.state.value}",
-            }
+            context = orchestrator.context_collector.collect()
+            has_changes = bool(context.changed_files or context.untracked_files)
+            if not has_changes and curr_state.latest_report:
+                return {
+                    "decision": "allow",
+                    "reason": f"SUPERVISOR session already concluded with state: {curr_state.state.value}",
+                }
+            # Unreviewed changes exist: reset task state to start a fresh review
+            curr_state = state_mgr.initialize_task(
+                prompt=context.task.prompt if context.has_explicit_prompt else "Workspace changes",
+                max_retries=curr_state.max_retries,
+            )
 
         # 4. Check for duplicate hook event or recursive review
         if curr_state.state == LifecycleState.REVIEWING:
-            return {
-                "decision": "allow",
-                "reason": "Review already in progress; avoiding recursive execution.",
-            }
+            is_stale = False
+            try:
+                state_time = datetime.fromisoformat(curr_state.updated_at)
+                age = (datetime.now(timezone.utc) - state_time).total_seconds()
+                if age > 30:
+                    is_stale = True
+            except Exception:
+                is_stale = True
+
+            if not is_stale:
+                return {
+                    "decision": "allow",
+                    "reason": "Review already in progress; avoiding recursive execution.",
+                }
+            # Stale lock: recover from interrupted review
+            state_mgr.transition_to(
+                LifecycleState.IMPLEMENTING,
+                "Recovered from interrupted or timed-out REVIEWING state.",
+            )
+            curr_state = state_mgr.load()
 
         # 5. Execute review or verification cycle
-        orchestrator = SupervisorOrchestrator(target_workspace)
-
         try:
             if curr_state.state == LifecycleState.REPAIRING:
                 # Progress check: verify if any changes were made since repair handoff
@@ -84,10 +108,11 @@ class AntigravityAdapter:
             else:
                 report = orchestrator.execute_review_cycle()
         except Exception as e:
-            # Core execution failure handling: report transparently and fail open
+            # Core execution failure handling: record state as BLOCKED and fail open for the host loop
+            state_mgr.transition_to(LifecycleState.BLOCKED, f"Core execution error: {str(e)}")
             return {
                 "decision": "allow",
-                "reason": f"SUPERVISOR core execution error: {str(e)}",
+                "reason": f"SUPERVISOR execution BLOCKED: {str(e)}",
             }
 
         # 6. Re-load updated state after execution
@@ -155,3 +180,4 @@ class AntigravityAdapter:
         # Final secret redaction check on the full JSON output
         serialized = json.dumps(response)
         return SecurityInspector.redact_secret(serialized)
+

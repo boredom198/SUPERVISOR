@@ -21,3 +21,4 @@ supervisor = "supervisor.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["supervisor*"]
+

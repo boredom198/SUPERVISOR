@@ -98,3 +98,4 @@ A critical architectural distinction must be made between **instructional influe
 Rules are **necessary but insufficient** on their own:
 1. **Primary Role**: Rules establish the behavioral contract, teaching the LLM its operating protocol and priming it to accept autonomous repair directives without prompting the user.
 2. **Technical Backstop Required**: Hard guarantees (preventing premature termination, forcing loop re-entry, and enforcing retry limits) must be handled by Antigravity Lifecycle Hooks (`hooks.json`) and the core state orchestrator.
+

@@ -91,3 +91,4 @@ The most robust supervision architecture is a **Hybrid Engine**:
 2. For single-agent workflows (the default interactive coding experience), drive this engine via the `Stop` lifecycle hook.
 3. For multi-agent workflows, wrap this exact same engine inside a specialized `supervisor-auditor` subagent.
 4. **No external server or daemon is needed**: Native Antigravity tools (`invoke_subagent`, `send_message`, `hooks.json`) provide 100% of the necessary primitives.
+

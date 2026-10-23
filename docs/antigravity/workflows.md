@@ -58,3 +58,4 @@ According to the official migration specification (`migrate-workflows`):
 
 **Do NOT build SUPERVISOR as a legacy workflow.**
 Designing SUPERVISOR as a workflow (`.agents/workflows/supervisor.md`) would violate current platform standards, incur immediate technical debt, and prevent multi-file bundling. SUPERVISOR must strictly be packaged as an **Agent Skill** (`.agents/skills/supervisor/SKILL.md`) backed by lifecycle hooks.
+

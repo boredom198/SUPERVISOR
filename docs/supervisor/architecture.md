@@ -166,3 +166,4 @@ To guarantee cross-platform reusability (supporting Antigravity, Claude Code, Op
 1. **Core Zero-External-Dependency Rule**: The shared core relies exclusively on the Python standard library. It does not require cloud APIs, proprietary SDKs, or database engines.
 2. **Adapter Isolation**: No Antigravity-specific concepts (such as `conversationId`, `injectSteps`, or protojson encoding) may exist inside the shared core modules. Adapters translate platform payloads into standard Core data models.
 3. **Deterministic First**: AI-assisted evaluation is an optional extension (Layer C deep mode), never a hard requirement for standard code inspection.
+

@@ -222,3 +222,4 @@ The state file records the active supervision session, tracking cycle progressio
 
 1. **Report Retention**: The engine retains the 10 most recent cycle reports (`report_cycle_<N>.*`). Historical reports beyond 10 cycles are pruned to prevent disk bloat.
 2. **Secret Redaction**: Any text matching high-entropy secret patterns (e.g. AWS access keys, Bearer tokens, private key blocks) is replaced with `[REDACTED]` prior to serializing JSON or writing Markdown reports.
+

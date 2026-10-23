@@ -75,3 +75,4 @@ The following authoritative specifications were directly inspected on the local 
    - Detailed rationale and deprecation documentation for legacy workflows.
 6. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\antigravity_guide\SKILL.md`**:
    - Comparative reference covering Antigravity CLI, IDE, App, and Python SDK.
+

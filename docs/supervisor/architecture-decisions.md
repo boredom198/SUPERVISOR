@@ -115,3 +115,4 @@ Partition checks into **Tier 1 (Synchronous In-Hook, < 5s)** for AST, secrets, a
 
 ### Rationale & Trade-offs
 * Prevents hook timeouts and system crashes while ensuring no test is ever falsely marked `PASSED`.
+

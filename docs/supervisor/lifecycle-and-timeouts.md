@@ -94,3 +94,4 @@ If a repository contains extensive end-to-end or integration test suites exceedi
    - The hook does **not** assume the test passed. It emits `decision: "continue"` with an instruction to the coding agent:
      `"The comprehensive test suite timed out in the supervisor gate. Please run and verify tests directly in the terminal before concluding."`
 3. **Never Fabricate Success**: A timed-out or interrupted test is never marked `PASSED`.
+

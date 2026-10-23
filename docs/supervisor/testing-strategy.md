@@ -100,3 +100,4 @@ Before any implementation prompt is deemed complete, the following gates must be
 | 4 | No `shell=True` in subprocess calls | AST visit across `supervisor/` |
 | 5 | Clean git working tree and git-ignored `.supervisor/` | `git status` |
 | 6 | Dogfooding run passes verification cleanly | `python -m supervisor review` |
+

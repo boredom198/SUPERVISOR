@@ -148,3 +148,4 @@ python -m unittest discover -s tests -v
 
 - **Dynamic Test Execution**: If tests are not defined in the workspace or require external services (e.g. database, remote API), SUPERVISOR reports that dynamic tests were not executed rather than fabricating a passing test result.
 - **Hook Availability in Headless / Minimal CLIs**: In environments where `.agents/hooks.json` is not evaluated by the host runtime, SUPERVISOR relies on persistent rules (`GEMINI.md` / `AGENTS.md`) and the manual `/supervisor` command to ensure the review cycle is performed.
+

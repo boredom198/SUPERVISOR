@@ -167,7 +167,7 @@ class ContextCollector:
 
         try:
             status_res = subprocess.run(
-                ["git", "status", "--porcelain"],
+                ["git", "status", "--porcelain", "-uall"],
                 cwd=str(self.workspace_root),
                 capture_output=True,
                 text=True,
@@ -226,6 +226,21 @@ class ContextCollector:
                             contents[p] = file_path.read_text(encoding="utf-8", errors="replace")
                     except OSError:
                         contents[p] = ""
+                elif file_path.is_dir():
+                    for root, dirs, files in os.walk(str(file_path)):
+                        dirs[:] = [d for d in dirs if d not in self.IGNORED_DIRS]
+                        for f in files:
+                            sub_path = Path(root) / f
+                            if sub_path.suffix.lower() not in self.TEXT_EXTENSIONS:
+                                continue
+                            if not self.is_safe_path(sub_path):
+                                continue
+                            try:
+                                if sub_path.is_file() and sub_path.stat().st_size <= self.MAX_FILE_BYTES:
+                                    rel = os.path.relpath(str(sub_path), str(self.workspace_root))
+                                    contents[rel] = sub_path.read_text(encoding="utf-8", errors="replace")
+                            except OSError:
+                                continue
             return contents
 
         # Safe directory traversal

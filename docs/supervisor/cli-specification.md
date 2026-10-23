@@ -130,3 +130,4 @@ supervisor report [--cycle <N>] [--format json|markdown]
 * If no prompt is passed and transcript logs are not found, the CLI sets `task_id: "task_auto"` and `prompt: "UNAVAILABLE"`.
 * It evaluates the diff against general syntax, security, error handling, and test requirements.
 * It does **not** hallucinate requirements or invent imaginary acceptance criteria.
+

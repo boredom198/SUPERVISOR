@@ -116,3 +116,4 @@ To **block completion and force autonomous repair**:
 ### Limitations & Edge Cases:
 * **Host Compatibility**: Hooks require an Antigravity surface that implements the hook runner. If Antigravity runs in a sandboxed mode where external process execution is disabled, hooks will fail or timeout.
 * **Synchronous Execution**: Hooks run synchronously and block the event loop. The hook execution timeout defaults to 30 seconds (configurable up to 120s). The review process must execute rapidly (using AST and targeted tests) rather than running unbounded test suites.
+

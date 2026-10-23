@@ -151,3 +151,4 @@ Skills lack lifecycle interception primitives. Once the agent emits its final re
 ## 7. Implications for SUPERVISOR
 1. **Role of the Skill**: The `supervisor` skill is the primary interface for manual invocation (`/supervisor`) and provides the formal step-by-step review and repair instructions for the agent.
 2. **Enforcement Limitation**: The existence of `.agents/skills/supervisor/SKILL.md` does *not* guarantee automatic supervision. SUPERVISOR must utilize a combination of lifecycle hooks (`hooks.json`) and workspace rules (`AGENTS.md` / `GEMINI.md`) to guarantee execution.
+
