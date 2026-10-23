@@ -48,3 +48,4 @@ This document details the exact execution semantics of the 9 stages of SUPERVISO
 ## Stage 9: Complete the Original Task
 - Task is marked `PASSED` only if verified by empirical evidence.
 - If stopped by retry limits or blockers, transparently reports unresolved issues and incomplete verification.
+

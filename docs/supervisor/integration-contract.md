@@ -132,3 +132,33 @@ class RepairDirectiveContract(abc.ABC):
   ```
 * **Output**: Writes summary to `$GITHUB_STEP_SUMMARY` and posts PR review comments via GitHub API.
 * **Gating**: Exits with status `1` on material defects, blocking PR merge.
+
+---
+
+## 5. Implemented Antigravity Integration (Prompt 5 Status)
+
+The native Google Antigravity integration is fully implemented through a decoupled, multi-layered architecture:
+
+### A. Architectural Components:
+1. **Lifecycle Hook Configuration (`.agents/hooks.json`)**:
+   - Registers a `Stop` event handler targeting `python -m supervisor.hooks.stop_hook` with a bounded timeout (`timeout: 60`).
+2. **Thin Adapter (`supervisor/adapters/antigravity.py`)**:
+   - Encapsulates `AntigravityAdapter`.
+   - Ingests Antigravity camelCase JSON payloads on `stdin` (`terminationReason`, `workspacePaths`, `transcriptPath`, etc.).
+   - Evaluates terminal states, recursion guards, and zero-progress states.
+   - Delegates inspection and verification to `SupervisorOrchestrator` without duplicating review logic.
+   - Enforces credential redaction via `SecurityInspector.redact_secret()` on all outgoing JSON directives.
+   - Emits compliant `{"decision": "continue", "reason": "<directives>"}` or `{"decision": "allow", "reason": "..."}`.
+3. **Skill & Slash Command (`.agents/skills/supervisor/SKILL.md`)**:
+   - Provides `/supervisor` entry point with default Review -> Auto-Repair Handoff -> Verify workflow.
+   - Supports explicit `--report-only` flag when repair directives should not be dispatched.
+4. **Persistent Project Instructions (`GEMINI.md`, `AGENTS.md`, `.agents/rules/AGENTS.md`)**:
+   - Enforces the core mandate and autonomous defect repair protocol without waiting for user instruction.
+   - Mandates non-destructive repairs and preservation of unrelated user code.
+
+### B. Confirmed vs. Mocked Verification:
+* **Hook Payload Parsing & Output Formatting**: Confirmed via 15 comprehensive automated integration tests in `tests/test_antigravity_integration.py`.
+* **Autonomous Continuation Schema**: Confirmed against the official Antigravity built-in documentation (`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\hooks.md`).
+* **Secret Redaction**: Confirmed with automated tests verifying that tokens (`sk_live_`, `ghp_`, private keys) are masked before returning in the hook's JSON `reason` payload.
+
+

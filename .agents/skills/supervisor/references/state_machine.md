@@ -36,3 +36,4 @@ stateDiagram-v2
 - Default `max_retries`: 3.
 - Incremented only upon post-repair verification.
 - Findings are tracked by immutable Finding IDs across cycles to prevent duplicate reporting and infinite cycling.
+

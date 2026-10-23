@@ -14,9 +14,12 @@ Whenever you implement, modify, or repair code in this workspace:
    - If SUPERVISOR reports any material defects (Critical, High, Medium, or failing tests), you MUST immediately proceed to repairing the code.
    - **Do NOT ask the user "Would you like me to fix these issues?" or wait for another prompt.**
    - Apply the recommended corrections directly to the files.
+   - **Preserve Unrelated Changes**: Never overwrite, delete, or break user files or code unrelated to the identified findings.
+   - Do not introduce empty stubs, temporary mock hacks, or silent exception swallowing during repair.
 4. **Re-verify After Repairs**:
    - Run `python -m supervisor verify`.
    - Ensure previous findings are resolved and no regressions were introduced.
 5. **Completion Reporting**:
    - Only describe the task as complete when SUPERVISOR verification has PASSED.
    - If stopped by retry limits or external blockers, state the unresolved issues and incomplete verification clearly and honestly.
+

@@ -24,3 +24,4 @@ Each finding produced by SUPERVISOR contains the following fields:
 - **Latest Report**: `.supervisor/latest_report.md` and `.supervisor/latest_report.json`
 - **Cycle Reports**: `.supervisor/reports/report_cycle_<N>.md` and `.supervisor/reports/report_cycle_<N>.json`
 - **Active Repair Directives**: `.supervisor/repair_directives.md`
+
