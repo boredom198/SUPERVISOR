@@ -106,7 +106,7 @@ class RepairDirectiveContract(abc.ABC):
 | Platform | Automatic Triggering | Repair Handoff | Completion Enforcement | Implementation Mechanism | Support Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Google Antigravity** | `Stop` hook in `.agents/hooks.json` | `decision: "continue"` with `reason` string | **Hard Gating**: Hook blocks turn completion | Native lifecycle hook + Skill + AGENTS.md | **Documented & Tested** |
-| **Claude Code** | Pre-prompt / bash tool wrappers or hooks | Tool output injection or stdin injection | **Hard Gating**: Non-zero exit code halts completion | CLI hook / custom tool wrapper | **Plausible (Requires Testing)** |
+| **Claude Code** | `Stop` hook in `.claude/settings.json` & `/supervisor` command | `decision: "block"` / exit code 2 with directives | **Hard Gating**: Hook intercepts turn completion | `ClaudeCodeAdapter` + `.claude/settings.json` + `CLAUDE.md` | **Implemented & Tested** |
 | **OpenAI Codex** | `Stop` hook in `.codex/hooks.json` & Harness wrapper | `decision: "block"` / exit code 2 with directives | **Hard Gating**: Hook intercepts turn / API loop continuation | `CodexAdapter` + `.codex/hooks.json` + `AGENTS.md` | **Implemented & Tested** |
 | **GitLab Duo CLI** | Pipeline trigger or Duo CLI hook | Duo chat message / pipeline notification | **Soft Gating**: Fails MR pipeline check | CI job / Git hook (`pre-push`) | **Plausible (MR Gate)** |
 | **Standalone CI (GitHub Actions)**| `on: [push, pull_request]` | Annotations / PR comments / CLI failure | **Hard Gating**: Fails workflow exit code 1 | GitHub Actions runner `python -m supervisor review` | **Documented & Tested** |
