@@ -5,5 +5,6 @@ from __future__ import annotations
 from supervisor.adapters.antigravity import AntigravityAdapter
 from supervisor.adapters.claude_code import ClaudeCodeAdapter
 from supervisor.adapters.codex import CodexAdapter
+from supervisor.adapters.gitlab_duo import GitLabDuoAdapter
 
-__all__ = ["AntigravityAdapter", "ClaudeCodeAdapter", "CodexAdapter"]
+__all__ = ["AntigravityAdapter", "ClaudeCodeAdapter", "CodexAdapter", "GitLabDuoAdapter"]

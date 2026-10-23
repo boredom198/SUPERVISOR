@@ -47,8 +47,10 @@ flowchart TD
 
 ### Cross-Platform Architecture
 The core review and verification engine (`supervisor/`) is completely decoupled from platform-specific UI:
+- **Google Antigravity**: Native `Stop` lifecycle hook (`.agents/hooks.json`), `/supervisor` skill, and `GEMINI.md`.
 - **OpenAI Codex**: Native `Stop` lifecycle hook (`.codex/hooks.json`), Python loop harness, and `AGENTS.md`.
 - **Claude Code**: Native `Stop` lifecycle hook (`.claude/settings.json`), slash command (`/supervisor`), and `CLAUDE.md`.
+- **GitLab Duo CLI**: Native `Stop` lifecycle hook (`.gitlab/duo/hooks.json`), custom slash command (`/supervisor`), and `.gitlab/duo/chat-rules.md`.
 - **CI / Git Repositories**: Run as a quality gate or git hook (`python -m supervisor review`).
 
 ---

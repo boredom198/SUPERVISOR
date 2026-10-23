@@ -10,3 +10,4 @@ A task is never complete merely because code has been written. It is complete ON
 4. Preserve all unrelated user changes, project conventions, and working tests.
 5. Verify repairs using `python -m supervisor verify`.
 6. Repeat until PASSED or retry limit is reached.
+

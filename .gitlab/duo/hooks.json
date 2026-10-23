@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "command": "python -m supervisor.hooks.gitlab_duo_stop_hook",
+        "timeout": 60
+      }
+    ]
+  }
+}

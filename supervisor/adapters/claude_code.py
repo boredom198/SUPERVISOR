@@ -324,3 +324,4 @@ class ClaudeCodeAdapter:
             "material_findings": [f.to_dict() for f in report.material_findings],
             "report_only": False,
         }
+

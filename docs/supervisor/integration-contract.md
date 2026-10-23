@@ -101,37 +101,45 @@ class RepairDirectiveContract(abc.ABC):
 
 ---
 
-## 3. Platform Capabilities & Adapter Assessment
+## 3. Four-Platform Capabilities & Evidence Matrix
 
-| Platform | Automatic Triggering | Repair Handoff | Completion Enforcement | Implementation Mechanism | Support Status |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Antigravity** | `Stop` hook in `.agents/hooks.json` | `decision: "continue"` with `reason` string | **Hard Gating**: Hook blocks turn completion | Native lifecycle hook + Skill + AGENTS.md | **Documented & Tested** |
-| **Claude Code** | `Stop` hook in `.claude/settings.json` & `/supervisor` command | `decision: "block"` / exit code 2 with directives | **Hard Gating**: Hook intercepts turn completion | `ClaudeCodeAdapter` + `.claude/settings.json` + `CLAUDE.md` | **Implemented & Tested** |
-| **OpenAI Codex** | `Stop` hook in `.codex/hooks.json` & Harness wrapper | `decision: "block"` / exit code 2 with directives | **Hard Gating**: Hook intercepts turn / API loop continuation | `CodexAdapter` + `.codex/hooks.json` + `AGENTS.md` | **Implemented & Tested** |
-| **GitLab Duo CLI** | Pipeline trigger or Duo CLI hook | Duo chat message / pipeline notification | **Soft Gating**: Fails MR pipeline check | CI job / Git hook (`pre-push`) | **Plausible (MR Gate)** |
-| **Standalone CI (GitHub Actions)**| `on: [push, pull_request]` | Annotations / PR comments / CLI failure | **Hard Gating**: Fails workflow exit code 1 | GitHub Actions runner `python -m supervisor review` | **Documented & Tested** |
+The table below summarizes the four implemented platform integrations, their completion enforcement models, and verified evidence levels:
+
+| Platform | Implemented | Unit-Tested | Subprocess-Tested | Verified Against Docs | Tested Against Host | Automatic Repair Supported | Remaining Limitations |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Antigravity** | Yes (`AntigravityAdapter`) | Yes (15 tests) | Yes (`test_real_lifecycle_fixture.py`) | Yes (Antigravity built-in docs) | Yes (Current host environment) | Full autonomous handoff (`decision: continue`) | Subagent concurrency isolation relies on process locks |
+| **OpenAI Codex** | Yes (`CodexAdapter`) | Yes (14 tests) | Yes (`test_codex_real_lifecycle_fixture.py`) | Yes (Codex hook & CLI docs) | Subprocess protocol simulated | Full autonomous handoff (`decision: block` / Exit 2) | Live Codex API token required for cloud execution |
+| **Claude Code** | Yes (`ClaudeCodeAdapter`) | Yes (16 tests) | Yes (`test_claude_code_real_lifecycle_fixture.py`) | Yes (Claude Code settings docs) | Subprocess protocol simulated | Full autonomous handoff (`decision: block` / Exit 2) | External Claude Code CLI binary not invoked directly |
+| **GitLab Duo CLI** | Yes (`GitLabDuoAdapter`) | Yes (16 tests) | Yes (`test_gitlab_duo_real_lifecycle_fixture.py`) | Yes (GitLab Duo CLI hooks & chat docs) | Subprocess protocol simulated | Full autonomous handoff (Exit 2 stderr / JSON block) | Live GitLab Duo GUI/cloud session not run in this environment |
 
 ---
 
-## 4. Detailed Specification of Future Adapters
+## 4. Platform Adapter Implementations
 
-### A. Claude Code Adapter (`supervisor/adapters/claude_code/`)
-* **Hook Mechanism**: Claude Code supports lifecycle shell integration and tool interception via project settings.
-* **Handoff Mechanism**: Emits formatted repair markdown on stderr/stdout with exit code 1, forcing Claude Code to read the failure output and propose repairs.
-* **Pre-requisite Research**: Verify exact JSON-RPC tool-use interception in the latest Claude Code CLI releases.
+### A. Google Antigravity (`supervisor/adapters/antigravity.py`)
+* **Hook Mechanism**: Native `Stop` hook configured in `.agents/hooks.json`.
+* **Handoff Mechanism**: Emits `{"decision": "continue", "reason": "<directives>"}` on `stdout` with exit code `0`.
+* **Context**: Reads Antigravity camelCase JSON payload (`terminationReason`, `workspacePaths`, `transcriptPath`).
+* **Command & Instructions**: `/supervisor` skill in `.agents/skills/supervisor/SKILL.md`, `GEMINI.md`, and `AGENTS.md`.
 
-### B. OpenAI Codex Harness Adapter (`supervisor/adapters/codex/`)
-* **Harness Model**: Since Codex is typically accessed programmatically via agent orchestration frameworks (e.g. OpenAI Assistants API or custom agent loops), the adapter acts as an execution decorator around `client.beta.threads.runs.create_and_poll`.
-* **Handoff Mechanism**: If SUPERVISOR returns `FIXES_REQUIRED`, the decorator automatically appends the repair directive to the thread and triggers a new run.
+### B. OpenAI Codex (`supervisor/adapters/codex.py`)
+* **Hook Mechanism**: Project-level `Stop` hook in `.codex/hooks.json` and program loop harness.
+* **Handoff Mechanism**: Emits `{"decision": "block", "reason": "<directives>"}` or exit code `2` with `stderr` feedback.
+* **Context**: Reads `cwd`, `session_id`, `stop_hook_active`, `last_assistant_message`.
+* **Instructions**: `.codex/AGENTS.md` and repository root `AGENTS.md`.
 
-### C. Standalone CI Adapter (`supervisor/adapters/ci/`)
-* **Execution**: Executed directly in GitHub Actions or GitLab CI runners:
-  ```yaml
-  - name: Run SUPERVISOR Review
-    run: python -m supervisor review --format markdown
-  ```
-* **Output**: Writes summary to `$GITHUB_STEP_SUMMARY` and posts PR review comments via GitHub API.
-* **Gating**: Exits with status `1` on material defects, blocking PR merge.
+### C. Claude Code (`supervisor/adapters/claude_code.py`)
+* **Hook Mechanism**: Project settings hook in `.claude/settings.json`.
+* **Handoff Mechanism**: Supports default structured JSON `decision: "block"` and imperative exit code `2` on `stderr`.
+* **Context**: Reads `transcript_path`, `cwd`, `session_id`, and `last_assistant_message`.
+* **Command & Instructions**: Custom command `.claude/commands/supervisor.md` and `CLAUDE.md`.
+
+### D. GitLab Duo CLI (`supervisor/adapters/gitlab_duo.py`)
+* **Hook Mechanism**: Project-level native hook in `.gitlab/duo/hooks.json`.
+* **Handoff Mechanism**: Defaults to imperative exit code `2` with actionable markdown directives on `stderr`. Supports structured JSON stdout mode with `--json-block` or `SUPERVISOR_GITLAB_JSON_BLOCK=1`.
+* **Context**: Ingests JSON payload via `stdin` (`cwd`, `session_id`, `hook_event_name`, `last_assistant_message`) and environment variables `DUO_PROJECT_DIR` and `DUO_SESSION_ID`.
+* **Command & Instructions**: Custom slash command `.gitlab/duo/commands/supervisor.md` and `.gitlab/duo/chat-rules.md`.
+
 
 ---
 

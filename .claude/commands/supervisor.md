@@ -13,3 +13,4 @@ Run the SUPERVISOR quality review and autonomous repair workflow:
    - Preserve all unrelated code and project conventions.
 3. Run `python -m supervisor verify` to verify the repairs and ensure zero regressions.
 4. Conclude only when verification passes with exit code 0 or explicit retry limits are reached.
+

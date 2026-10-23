@@ -184,3 +184,4 @@ python -m unittest tests/test_claude_code_real_lifecycle_fixture.py -v
 # 3. Verify repository integrity with supervisor verify
 python -m supervisor verify
 ```
+

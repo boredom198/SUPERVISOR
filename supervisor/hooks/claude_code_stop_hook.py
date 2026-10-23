@@ -34,3 +34,4 @@ def handle_claude_code_stop_event():
 
 if __name__ == "__main__":
     handle_claude_code_stop_event()
+
