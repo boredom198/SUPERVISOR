@@ -47,9 +47,9 @@ flowchart TD
 
 ### Cross-Platform Architecture
 The core review and verification engine (`supervisor/`) is completely decoupled from platform-specific UI:
-- **Claude Code**: Integrated via pre-commit or post-bash hooks.
-- **OpenAI Codex / Custom Agents**: Executed via standard CLI (`python -m supervisor review`).
-- **CI / Git Repositories**: Run as a quality gate or git hook.
+- **OpenAI Codex**: Native `Stop` lifecycle hook (`.codex/hooks.json`), Python loop harness, and `AGENTS.md`.
+- **Claude Code**: Integrated via CLI hook or pre-commit scripts.
+- **CI / Git Repositories**: Run as a quality gate or git hook (`python -m supervisor review`).
 
 ---
 

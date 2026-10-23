@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python -m supervisor.hooks.codex_stop_hook",
+        "timeout": 60
+      }
+    ]
+  }
+}
