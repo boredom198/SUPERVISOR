@@ -1,0 +1,12 @@
+{
+  "supervisor-gate": {
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python -m supervisor.hooks.stop_hook",
+        "timeout": 60
+      }
+    ]
+  }
+}
