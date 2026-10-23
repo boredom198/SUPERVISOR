@@ -1,4 +1,4 @@
-"""Code inspection and test execution engine for SUPERVISOR."""
+"""Code inspection engine for syntax, structure, error handling, and placeholder detection."""
 
 from __future__ import annotations
 
@@ -6,41 +6,45 @@ import ast
 import json
 import os
 import re
-import subprocess
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+
+# Python 3.11+ standard library tomllib
+try:
+    import tomllib
+except ImportError:
+    tomllib = None  # type: ignore
 
 from supervisor.models import (
     Category,
+    Confidence,
     Finding,
     FindingStatus,
     Severity,
     TestResult,
 )
+from supervisor.runner import TestRunner
+from supervisor.security import SecurityInspector
 
 
 class CodeInspector:
-    """Performs evidence-based code inspections: AST analysis, security scanning, syntax verification, and test execution."""
+    """Performs deterministic code analysis: syntax parsing, AST structure, placeholders, and error handling."""
 
-    SECRET_PATTERNS = [
-        (re.compile(r"""(?i)(?:api_key|apikey|secret|password|token|auth_token)\s*=\s*['\"][A-Za-z0-9_\-\.]{16,}['\"]"""), "Hardcoded sensitive credential or API key found"),
-        (re.compile(r"""-----BEGIN (?:RSA |EC )?PRIVATE KEY-----"""), "Private key block embedded in code"),
-    ]
+    PLACEHOLDER_REGEX = re.compile(
+        r"""(?i)\b(?:TODO|FIXME|STUB|XXX)\b\s*[:\-]?\s*(?:implement|fix|handle|finish|complete|broken|unimplemented|temp|mock|dummy)\b.*"""
+    )
 
-    DANGEROUS_CALLS = [
-        ("eval", Severity.CRITICAL, Category.SECURITY, "Use of eval() introduces arbitrary code execution risks."),
-        ("exec", Severity.CRITICAL, Category.SECURITY, "Use of exec() introduces arbitrary dynamic code execution risks."),
-    ]
-
-    def __init__(self, workspace_root: Path | str | None = None):
+    def __init__(self, workspace_root: Optional[Path | str] = None):
         self.workspace_root = (
             Path(workspace_root) if workspace_root else Path.cwd()
         ).resolve()
+        self.security = SecurityInspector(self.workspace_root)
+        self.runner = TestRunner(self.workspace_root)
 
     def inspect_python_file(self, rel_path: str, content: str) -> List[Finding]:
-        """Inspects Python source for syntax errors, AST anti-patterns, and bad error handling."""
+        """Inspects Python source for syntax errors, AST structural problems, security, and error handling."""
         findings: List[Finding] = []
+        lines = content.splitlines()
 
         # 1. Syntax check via AST
         try:
@@ -53,94 +57,151 @@ class CodeInspector:
                     category=Category.BUG,
                     file_path=rel_path,
                     line_number=e.lineno,
+                    title=f"SyntaxError in {rel_path}:{e.lineno}",
                     description=f"SyntaxError in Python file: {e.msg}",
                     evidence=f"Line {e.lineno}, column {e.offset}: {e.text or ''}".strip(),
                     why_it_matters="Code with syntax errors fails to parse and cannot execute.",
                     recommended_correction="Fix the syntax error at the indicated line and column.",
                     verification_method="Run `python -m py_compile <file>` or `ast.parse`",
+                    confidence=Confidence.CONFIRMED,
                     status=FindingStatus.CONFIRMED,
+                    source_check="python_syntax_parser",
                 )
             )
-            return findings  # Cannot do further AST analysis if syntax fails
+            return findings  # Cannot perform AST structural analysis if syntax parsing fails
 
-        # 2. AST Visitor for dangerous calls and empty except blocks
-        class ASTVisitor(ast.NodeVisitor):
+        # 2. AST Visitor for error handling and empty stubs
+        class StructuralVisitor(ast.NodeVisitor):
             def __init__(self):
-                self.issues = []
-
-            def visit_Call(self, node: ast.Call):
-                # Check eval/exec
-                if isinstance(node.func, ast.Name) and node.func.id in ("eval", "exec"):
-                    self.issues.append(("dangerous_call", node.lineno, node.func.id))
-                # Check subprocess shell=True
-                if (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr in ("Popen", "run", "call", "check_output")
-                ):
-                    for kw in node.keywords:
-                        if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                            self.issues.append(("shell_true", node.lineno, "subprocess with shell=True"))
-                self.generic_visit(node)
+                self.bare_excepts: List[int] = []
+                self.stub_functions: List[Tuple[str, int]] = []
+                self.not_implemented_nodes: List[Tuple[str, int]] = []
 
             def visit_ExceptHandler(self, node: ast.ExceptHandler):
-                # Check for bare except or pass-only except on general Exception/BaseException
+                # Check for bare except or silent except (Exception, BaseException) with pass-only body
                 if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
-                    if node.type is None or (isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException")):
-                        self.issues.append(("silent_pass_except", node.lineno, "Bare or silent `except: pass` block"))
+                    if node.type is None:
+                        self.bare_excepts.append(node.lineno)
+                    elif isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException"):
+                        self.bare_excepts.append(node.lineno)
+                    elif isinstance(node.type, ast.Tuple):
+                        if any(isinstance(elt, ast.Name) and elt.id in ("Exception", "BaseException") for elt in node.type.elts):
+                            self.bare_excepts.append(node.lineno)
                 self.generic_visit(node)
 
-        visitor = ASTVisitor()
+            def visit_FunctionDef(self, node: ast.FunctionDef):
+                self._check_function(node)
+                self.generic_visit(node)
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+                self._check_function(node)
+                self.generic_visit(node)
+
+            def _check_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef):
+                # Check if function is abstract or protocol
+                is_abstract = any(
+                    (isinstance(d, ast.Name) and d.id in ("abstractmethod", "abstractproperty", "overload"))
+                    or (isinstance(d, ast.Attribute) and d.attr in ("abstractmethod", "abstractproperty", "overload"))
+                    for d in node.decorator_list
+                )
+                if is_abstract:
+                    return
+
+                # Check for raise NotImplementedError
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Raise) and child.exc:
+                        name = ""
+                        if isinstance(child.exc, ast.Name):
+                            name = child.exc.id
+                        elif isinstance(child.exc, ast.Call) and isinstance(child.exc.func, ast.Name):
+                            name = child.exc.func.id
+                        if name == "NotImplementedError":
+                            self.not_implemented_nodes.append((node.name, child.lineno))
+
+                # Check for empty stub (single pass body or return None) in non-trivial function
+                body_statements = [
+                    stmt for stmt in node.body
+                    if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str))
+                ]
+                if len(body_statements) == 1:
+                    first = body_statements[0]
+                    if isinstance(first, ast.Pass):
+                        # Flag as empty stub if name is not an event hook or dummy
+                        if not any(k in node.name.lower() for k in ("noop", "dummy", "setup", "teardown", "hook")):
+                            self.stub_functions.append((node.name, node.lineno))
+
+        visitor = StructuralVisitor()
         visitor.visit(tree)
 
-        for issue_type, lineno, detail in visitor.issues:
-            if issue_type == "dangerous_call":
+        for lineno in visitor.bare_excepts:
+            findings.append(
+                Finding(
+                    finding_id=f"ERR-SILENT-{abs(hash(rel_path + str(lineno))) % 10000:04d}",
+                    severity=Severity.MEDIUM,
+                    category=Category.ERROR_HANDLING,
+                    file_path=rel_path,
+                    line_number=lineno,
+                    title="Silent exception swallowing detected",
+                    description="Silent exception swallowing (`except: pass` or `except Exception: pass`) detected.",
+                    evidence=f"Line {lineno}: Exception handler contains only `pass` without logging or re-raising.",
+                    why_it_matters="Silently suppressing exceptions hides bugs, masks catastrophic failures, and corrupts state.",
+                    recommended_correction="Catch specific exception types, log the caught exception, or re-raise.",
+                    verification_method="Static AST inspection and error handling unit tests.",
+                    confidence=Confidence.CONFIRMED,
+                    status=FindingStatus.CONFIRMED,
+                    source_check="python_ast_error_handling",
+                )
+            )
+
+        for func_name, lineno in visitor.not_implemented_nodes:
+            findings.append(
+                Finding(
+                    finding_id=f"REQ-NIE-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
+                    severity=Severity.HIGH,
+                    category=Category.MISSING_REQUIREMENT,
+                    file_path=rel_path,
+                    line_number=lineno,
+                    title=f"Unimplemented construct in `{func_name}`",
+                    description=f"Unimplemented placeholder (`raise NotImplementedError`) in non-abstract function `{func_name}`.",
+                    evidence=f"Line {lineno}: function `{func_name}` raises NotImplementedError",
+                    why_it_matters="Incomplete implementations cause runtime failures when the code path is exercised.",
+                    recommended_correction=f"Provide the complete functional implementation of `{func_name}`.",
+                    verification_method="Functional test execution exercising the function.",
+                    confidence=Confidence.CONFIRMED,
+                    status=FindingStatus.CONFIRMED,
+                    source_check="python_ast_unimplemented",
+                )
+            )
+
+        is_test_file = any(part in rel_path.lower() for part in ("test", "fixture", "mock", "spec"))
+        if not is_test_file:
+            for func_name, lineno in visitor.stub_functions:
+                if func_name.startswith("test_"):
+                    continue
                 findings.append(
                     Finding(
-                        finding_id=f"SEC-{abs(hash(rel_path + str(lineno) + detail)) % 10000:04d}",
-                        severity=Severity.CRITICAL,
-                        category=Category.SECURITY,
-                        file_path=rel_path,
-                        line_number=lineno,
-                        description=f"Dangerous function call `{detail}()` detected.",
-                        evidence=f"Call to `{detail}` at line {lineno}",
-                        why_it_matters="Executing untrusted code or arbitrary strings creates critical vulnerabilities.",
-                        recommended_correction=f"Replace `{detail}` with a safe alternative like `ast.literal_eval` or explicit parsing.",
-                        verification_method="Static AST inspection and unit tests",
-                        status=FindingStatus.CONFIRMED,
-                    )
+                        finding_id=f"STUB-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
+                    severity=Severity.MEDIUM,
+                    category=Category.MISSING_REQUIREMENT,
+                    file_path=rel_path,
+                    line_number=lineno,
+                    title=f"Empty stub function `{func_name}`",
+                    description=f"Function `{func_name}` has an empty implementation containing only `pass`.",
+                    evidence=f"Line {lineno}: function `{func_name}` body is empty `pass`",
+                    why_it_matters="Empty stub implementations indicate unfinished work that may cause silent no-ops or regressions.",
+                    recommended_correction=f"Implement the expected behavior for `{func_name}` or remove it if obsolete.",
+                    verification_method="Code review and test execution.",
+                    confidence=Confidence.HEURISTIC,
+                    status=FindingStatus.CONFIRMED,
+                    source_check="python_ast_stub_detector",
                 )
-            elif issue_type == "shell_true":
-                findings.append(
-                    Finding(
-                        finding_id=f"SEC-{abs(hash(rel_path + str(lineno) + detail)) % 10000:04d}",
-                        severity=Severity.HIGH,
-                        category=Category.SECURITY,
-                        file_path=rel_path,
-                        line_number=lineno,
-                        description="Subprocess invocation with `shell=True` detected.",
-                        evidence=f"Line {lineno}: subprocess call includes `shell=True`",
-                        why_it_matters="Using `shell=True` creates command injection vulnerabilities if inputs are not sanitized.",
-                        recommended_correction="Pass arguments as a list with `shell=False`.",
-                        verification_method="Static AST inspection",
-                        status=FindingStatus.CONFIRMED,
-                    )
-                )
-            elif issue_type == "silent_pass_except":
-                findings.append(
-                    Finding(
-                        finding_id=f"ERR-{abs(hash(rel_path + str(lineno) + detail)) % 10000:04d}",
-                        severity=Severity.MEDIUM,
-                        category=Category.ERROR_HANDLING,
-                        file_path=rel_path,
-                        line_number=lineno,
-                        description="Silent exception swallowing (`except: pass`) detected.",
-                        evidence=f"Line {lineno}: exception handler contains only `pass`",
-                        why_it_matters="Silent failure hides root causes of errors and corrupts execution state.",
-                        recommended_correction="Log the caught exception or catch specific expected exception types.",
-                        verification_method="Static AST inspection and error handling tests",
-                        status=FindingStatus.CONFIRMED,
-                    )
-                )
+            )
+
+        # 3. Contextual Placeholder Comments
+        findings.extend(self.inspect_placeholders(rel_path, content))
+
+        # 4. Dangerous AST execution checks (eval, exec, shell=True, mktemp)
+        findings.extend(self.security._scan_python_security_ast(rel_path, content, lines))
 
         return findings
 
@@ -157,166 +218,108 @@ class CodeInspector:
                     category=Category.DEPENDENCY_CONFIG,
                     file_path=rel_path,
                     line_number=e.lineno,
+                    title=f"Malformed JSON in {rel_path}:{e.lineno}",
                     description=f"Invalid JSON in configuration file: {e.msg}",
-                    evidence=f"Line {e.lineno}, column {e.colno}: {e.doc.splitlines()[e.lineno-1] if e.lineno <= len(e.doc.splitlines()) else ''}".strip(),
-                    why_it_matters="Malformed JSON causes tools, plugins, or runtime configurations to crash.",
-                    recommended_correction="Correct JSON syntax errors (e.g. trailing commas, missing quotes).",
-                    verification_method="`json.loads` parsing check",
+                    evidence=f"Line {e.lineno}, column {e.colno}: {e.msg}",
+                    why_it_matters="Malformed JSON configuration causes tools, package managers, and runtimes to crash.",
+                    recommended_correction="Correct JSON syntax errors (remove trailing commas, fix unbalanced brackets, quote keys).",
+                    verification_method="Run `json.loads` check.",
+                    confidence=Confidence.CONFIRMED,
                     status=FindingStatus.CONFIRMED,
+                    source_check="json_parser",
                 )
             )
         return findings
 
-    def inspect_secrets(self, rel_path: str, content: str) -> List[Finding]:
-        """Scans text for exposed credentials and private keys."""
+    def inspect_toml_file(self, rel_path: str, content: str) -> List[Finding]:
+        """Validates TOML files using standard library tomllib."""
         findings: List[Finding] = []
-        # Ignore sample test files or dummy configs
-        if "test" in rel_path.lower() or "fixture" in rel_path.lower():
+        if tomllib is None:
             return findings
 
-        for pattern, desc in self.SECRET_PATTERNS:
-            for match in pattern.finditer(content):
-                lineno = content[: match.start()].count("\n") + 1
+        try:
+            tomllib.loads(content)
+        except Exception as e:
+            lineno = getattr(e, "lineno", None)
+            findings.append(
+                Finding(
+                    finding_id=f"TOML-{abs(hash(rel_path + str(lineno or 1))) % 10000:04d}",
+                    severity=Severity.HIGH,
+                    category=Category.DEPENDENCY_CONFIG,
+                    file_path=rel_path,
+                    line_number=lineno,
+                    title=f"Malformed TOML in {rel_path}",
+                    description=f"Invalid TOML in configuration file: {str(e)}",
+                    evidence=f"TOML parse error: {str(e)}",
+                    why_it_matters="Malformed TOML configurations (such as pyproject.toml) break dependency resolution and builds.",
+                    recommended_correction="Correct TOML syntax according to specification.",
+                    verification_method="Run TOML parser check.",
+                    confidence=Confidence.CONFIRMED,
+                    status=FindingStatus.CONFIRMED,
+                    source_check="toml_parser",
+                )
+            )
+        return findings
+
+    def inspect_placeholders(self, rel_path: str, content: str) -> List[Finding]:
+        """Scans source content for actionable TODO/FIXME/STUB markers relevant to task."""
+        findings: List[Finding] = []
+        # Ignore test files, documentation, markdown, and supervisor's own code
+        if any(part in rel_path.lower() for part in ("test", "fixture", "spec", ".md", "doc")):
+            return findings
+
+        lines = content.splitlines()
+        for i, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            # Match actionable TODO/FIXME
+            m = self.PLACEHOLDER_REGEX.search(stripped)
+            if m:
+                matched_text = m.group(0)
                 findings.append(
                     Finding(
-                        finding_id=f"SEC-{abs(hash(rel_path + str(lineno) + desc)) % 10000:04d}",
-                        severity=Severity.CRITICAL,
-                        category=Category.SECURITY,
+                        finding_id=f"TODO-{abs(hash(rel_path + str(i))) % 10000:04d}",
+                        severity=Severity.LOW,
+                        category=Category.MISSING_REQUIREMENT,
                         file_path=rel_path,
-                        line_number=lineno,
-                        description=desc,
-                        evidence=f"Line {lineno}: matched secret pattern",
-                        why_it_matters="Exposing credentials in source code leads to credential theft and unauthorized access.",
-                        recommended_correction="Load credentials from environment variables or a secure key store.",
-                        verification_method="Secret pattern scan",
-                        status=FindingStatus.CONFIRMED,
+                        line_number=i,
+                        title=f"Actionable placeholder in {rel_path}:{i}",
+                        description=f"Actionable incomplete-task marker detected: `{matched_text[:60]}`",
+                        evidence=f"Line {i}: {stripped}",
+                        why_it_matters="Unfinished TODO/FIXME markers in production code may leave critical requirements unaddressed.",
+                        recommended_correction="Complete the task referenced in the comment or remove if obsolete.",
+                        verification_method="Source code review confirming resolution.",
+                        confidence=Confidence.HEURISTIC,
+                        status=FindingStatus.RECOMMENDED,
+                        source_check="placeholder_scanner",
                     )
                 )
+        return findings
+
+    def inspect_file(self, rel_path: str, content: str) -> List[Finding]:
+        """Routes file content to appropriate language inspectors based on extension."""
+        findings: List[Finding] = []
+
+        if rel_path.endswith(".py"):
+            findings.extend(self.inspect_python_file(rel_path, content))
+        elif rel_path.endswith(".json"):
+            findings.extend(self.inspect_json_file(rel_path, content))
+        elif rel_path.endswith(".toml"):
+            findings.extend(self.inspect_toml_file(rel_path, content))
+        else:
+            # Check placeholders on general text/code files
+            findings.extend(self.inspect_placeholders(rel_path, content))
+
         return findings
 
     def inspect_incomplete_implementations(self, rel_path: str, content: str) -> List[Finding]:
-        """Detects stub functions, TODO comments, and unimplemented placeholders using AST analysis."""
-        findings: List[Finding] = []
-        try:
-            tree = ast.parse(content, filename=rel_path)
-        except SyntaxError:
-            return findings
+        """Scans file for incomplete implementation markers, placeholders, and stubs."""
+        return self.inspect_placeholders(rel_path, content)
 
-        class NotImplementedVisitor(ast.NodeVisitor):
-            def __init__(self):
-                self.issues = []
-
-            def visit_FunctionDef(self, node: ast.FunctionDef):
-                # Ignore abstract methods or protocols
-                is_abstract = any(
-                    (isinstance(d, ast.Name) and d.id in ("abstractmethod", "abstractproperty"))
-                    or (isinstance(d, ast.Attribute) and d.attr in ("abstractmethod", "abstractproperty"))
-                    for d in node.decorator_list
-                )
-                if not is_abstract:
-                    for child in ast.walk(node):
-                        if isinstance(child, ast.Raise) and child.exc:
-                            name = ""
-                            if isinstance(child.exc, ast.Name):
-                                name = child.exc.id
-                            elif isinstance(child.exc, ast.Call) and isinstance(child.exc.func, ast.Name):
-                                name = child.exc.func.id
-                            if name == "NotImplementedError":
-                                self.issues.append((node.name, child.lineno))
-                self.generic_visit(node)
-
-        visitor = NotImplementedVisitor()
-        visitor.visit(tree)
-
-        for func_name, lineno in visitor.issues:
-            findings.append(
-                Finding(
-                    finding_id=f"REQ-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
-                    severity=Severity.HIGH,
-                    category=Category.MISSING_REQUIREMENT,
-                    file_path=rel_path,
-                    line_number=lineno,
-                    description=f"Unimplemented placeholder (`raise NotImplementedError`) in non-abstract function `{func_name}`.",
-                    evidence=f"Line {lineno}: function `{func_name}` raises NotImplementedError",
-                    why_it_matters="Incomplete implementations cause runtime failures when the code path is exercised.",
-                    recommended_correction=f"Provide the complete implementation of `{func_name}`.",
-                    verification_method="Functional test execution",
-                    status=FindingStatus.CONFIRMED,
-                )
-            )
-        return findings
+    def inspect_secrets(self, rel_path: str, content: str) -> List[Finding]:
+        """Scans file for credentials and secrets."""
+        return self.security.inspect_file(rel_path, content)
 
     def run_tests(self, test_command: Optional[str] = None) -> List[TestResult]:
-        """Executes actual tests in the workspace and records genuine results."""
-        import shlex
+        """Runs test discovery and execution via TestRunner."""
+        return self.runner.execute_all(explicit_command=test_command)
 
-        results: List[TestResult] = []
-
-        commands_to_try: List[str] = []
-        if test_command:
-            commands_to_try.append(test_command)
-        else:
-            # Check for pytest or unittest
-            tests_dir = self.workspace_root / "tests"
-            if tests_dir.exists():
-                commands_to_try.append("python -m unittest discover -s tests")
-            # Check for npm test
-            pkg_json = self.workspace_root / "package.json"
-            if pkg_json.exists():
-                try:
-                    data = json.loads(pkg_json.read_text(encoding="utf-8"))
-                    if "test" in data.get("scripts", {}):
-                        commands_to_try.append("npm test")
-                except (json.JSONDecodeError, OSError):
-                    data = {}
-
-        for cmd in commands_to_try:
-            start_t = time.perf_counter()
-            try:
-                # Use shlex to safely parse args and execute with shell=False
-                args = shlex.split(cmd, posix=False) if os.name == "nt" else shlex.split(cmd)
-                proc = subprocess.run(
-                    args,
-                    shell=False,
-                    cwd=str(self.workspace_root),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-                duration = time.perf_counter() - start_t
-                results.append(
-                    TestResult(
-                        command=cmd,
-                        exit_code=proc.returncode,
-                        stdout=proc.stdout[-4000:] if proc.stdout else "",
-                        stderr=proc.stderr[-4000:] if proc.stderr else "",
-                        duration_seconds=round(duration, 3),
-                        passed=(proc.returncode == 0),
-                    )
-                )
-            except subprocess.TimeoutExpired:
-                duration = time.perf_counter() - start_t
-                results.append(
-                    TestResult(
-                        command=cmd,
-                        exit_code=-1,
-                        stdout="",
-                        stderr="Test execution timed out after 120 seconds.",
-                        duration_seconds=round(duration, 3),
-                        passed=False,
-                    )
-                )
-            except Exception as e:
-                duration = time.perf_counter() - start_t
-                results.append(
-                    TestResult(
-                        command=cmd,
-                        exit_code=-1,
-                        stdout="",
-                        stderr=f"Failed to execute test command: {str(e)}",
-                        duration_seconds=round(duration, 3),
-                        passed=False,
-                    )
-                )
-
-        return results

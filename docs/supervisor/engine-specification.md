@@ -153,3 +153,21 @@ flowchart TD
 
 * **Deduplication**: Findings are identified by stable hash keys (`category + file_path + lineno + rule_type`).
 * **Regression Detection**: Any material finding appearing in Cycle $N+1$ that was not present in Cycle $N$ is explicitly flagged as a **REGRESSION** introduced by the repair attempt.
+
+---
+
+## 8. Implemented Core Engine Architecture (Prompt 4 Status)
+
+The shared core review engine has been implemented with zero third-party dependencies using standard library Python 3.11+:
+
+| Module | Core Responsibility | Supported Checks & Features |
+| :--- | :--- | :--- |
+| `supervisor.models` | Data models & state | `Finding`, `SupervisorReport`, `CheckRecord`, `TestResult`, `TaskSpec`, `Severity`, `Category`, `Confidence`, `FindingStatus`, `TestStatus`, `ReviewStatus` |
+| `supervisor.security` | Credentials & dangerous calls | Private keys (`RSA`, `EC`, `OPENSSH`), cloud tokens (`ghp_`, `sk_live_`, `AKIA`), generic credential assignments, `eval`/`exec`, `subprocess(shell=True)`, `tempfile.mktemp`, false-positive inline suppressions (`# supervisor:ignore`, `# nosec`), and mandatory secret masking via `redact_secret()` |
+| `supervisor.inspector` | Syntax, AST & placeholders | Python AST parser (`ast.parse`), bare/silent exception swallowing, non-abstract `NotImplementedError`, empty stub function detection, JSON decoder (`json.loads`), TOML parser (`tomllib`), actionable `TODO`/`FIXME` markers |
+| `supervisor.runner` | Test discovery & execution | Discovers `unittest` (`tests/` or workspace files) and `npm test` (`package.json`); enforces `shell=False` arg splitting, configurable timeout ceilings (default 30s), output truncation (4000 chars), script authorization policy, and honest `NOT_AVAILABLE` reporting without fabrication |
+| `supervisor.context` | Workspace & task context | Git working tree analysis (`git status`, `git diff`), non-git directory traversal, 1 MB per-file reading limits, transcript prompt extraction, and missing-prompt `UNAVAILABLE` fallback |
+| `supervisor.reviewer` | Review engine coordinator | Ingests context, executes language & security inspectors, executes test runners, tracks `checks_executed` / `checks_skipped` / `limitations`, reconciles previous findings, and produces structured `SupervisorReport` |
+| `supervisor.reporter` | Structured reporting | Formats Markdown and JSON reports with executive summaries, check records, test statuses, confidence ratings, and redacted evidence |
+
+

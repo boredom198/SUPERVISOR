@@ -11,12 +11,16 @@ from supervisor.context import WorkspaceContext
 from supervisor.inspector import CodeInspector
 from supervisor.models import (
     Category,
+    CheckRecord,
+    Confidence,
     Finding,
     FindingStatus,
     LifecycleState,
+    ReviewStatus,
     Severity,
     SupervisorReport,
     TestResult,
+    TestStatus,
 )
 
 
@@ -38,30 +42,81 @@ class ReviewEngine:
     ) -> SupervisorReport:
         """Executes a complete review cycle against the workspace and requirements."""
         findings: List[Finding] = []
+        checks_executed: List[CheckRecord] = []
+        checks_skipped: List[CheckRecord] = []
         files_to_check = context.file_contents
 
         # 1. Static and AST checks on relevant files
         for rel_path, content in files_to_check.items():
             # Skip virtual environments or temporary files
             if any(part in rel_path for part in (".venv", "venv", "__pycache__")):
+                checks_skipped.append(
+                    CheckRecord(
+                        check_name="environment_filter",
+                        target=rel_path,
+                        status="SKIPPED",
+                        reason="Virtual environment or cache directory",
+                    )
+                )
                 continue
 
             # Python files
             if rel_path.endswith(".py"):
+                checks_executed.append(
+                    CheckRecord(
+                        check_name="python_syntax_and_ast",
+                        target=rel_path,
+                        status="EXECUTED",
+                    )
+                )
                 findings.extend(self.inspector.inspect_python_file(rel_path, content))
                 findings.extend(self.inspector.inspect_incomplete_implementations(rel_path, content))
 
             # JSON files
             elif rel_path.endswith(".json"):
+                checks_executed.append(
+                    CheckRecord(
+                        check_name="json_syntax_parser",
+                        target=rel_path,
+                        status="EXECUTED",
+                    )
+                )
                 findings.extend(self.inspector.inspect_json_file(rel_path, content))
 
+            # TOML files
+            elif rel_path.endswith(".toml"):
+                checks_executed.append(
+                    CheckRecord(
+                        check_name="toml_syntax_parser",
+                        target=rel_path,
+                        status="EXECUTED",
+                    )
+                )
+                findings.extend(self.inspector.inspect_toml_file(rel_path, content))
+
             # General secret scanning
+            checks_executed.append(
+                CheckRecord(
+                    check_name="secret_scanner",
+                    target=rel_path,
+                    status="EXECUTED",
+                )
+            )
             findings.extend(self.inspector.inspect_secrets(rel_path, content))
 
         # 2. Test Execution
         test_results = self.inspector.run_tests(test_command=test_command)
+        checks_executed.append(
+            CheckRecord(
+                check_name="automated_test_runner",
+                target=test_command or "discovery",
+                status="EXECUTED",
+            )
+        )
         for tr in test_results:
             if not tr.passed:
+                if tr.status == TestStatus.NOT_AVAILABLE:
+                    continue
                 err_evidence = tr.stderr.strip() or tr.stdout.strip()
                 findings.append(
                     Finding(
@@ -75,7 +130,9 @@ class ReviewEngine:
                         why_it_matters="Failing test suites indicate broken logic, regressions, or unfulfilled requirements.",
                         recommended_correction="Examine test error traceback and fix the underlying implementation.",
                         verification_method=f"Execute `{tr.command}` and verify exit code 0.",
+                        confidence=Confidence.CONFIRMED,
                         status=FindingStatus.CONFIRMED,
+                        source_check="automated_test_runner",
                         cycle=cycle,
                     )
                 )
@@ -83,6 +140,13 @@ class ReviewEngine:
         # 3. Requirement Verification
         req_findings = self._check_requirements(context, cycle)
         findings.extend(req_findings)
+        checks_executed.append(
+            CheckRecord(
+                check_name="requirement_verifier",
+                target=context.task.task_id,
+                status="EXECUTED",
+            )
+        )
 
         # 4. Inadequate / missing tests check
         test_coverage_findings = self._check_test_presence(context, cycle)
@@ -93,7 +157,7 @@ class ReviewEngine:
             findings, previous_report, cycle
         )
 
-        # 6. Determine final state for report
+        # 6. Determine final state and limitations for report
         has_material = any(
             f.severity in {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}
             and f.status in {FindingStatus.CONFIRMED, FindingStatus.UNRESOLVED}
@@ -101,9 +165,25 @@ class ReviewEngine:
         )
         report_state = LifecycleState.FIXES_REQUIRED if has_material else LifecycleState.PASSED
 
+        limitations: List[str] = list(context.limitations)
+        if not context.has_explicit_prompt:
+            limitations.append("Task prompt is UNAVAILABLE; analysis restricted to code structure, security, and tests.")
+        if any(tr.status == TestStatus.NOT_AVAILABLE for tr in test_results):
+            limitations.append("No automated test suite discovered in workspace.")
+
+        if has_material:
+            overall_status = ReviewStatus.FIXES_REQUIRED
+        elif any(tr.status == TestStatus.NOT_AVAILABLE for tr in test_results):
+            overall_status = ReviewStatus.VERIFICATION_INCOMPLETE
+        else:
+            overall_status = ReviewStatus.PASSED
+
         summary_parts = []
         if not has_material:
-            summary_parts.append("Implementation passed all checks. No material issues detected.")
+            if overall_status == ReviewStatus.VERIFICATION_INCOMPLETE:
+                summary_parts.append("Implementation passed static checks; automated test suite not available.")
+            else:
+                summary_parts.append("Implementation passed all checks and tests. No material issues detected.")
         else:
             material_count = sum(
                 1
@@ -124,6 +204,10 @@ class ReviewEngine:
             tests_run=test_results,
             changed_files=context.changed_files + context.untracked_files,
             summary=" ".join(summary_parts),
+            checks_executed=checks_executed,
+            checks_skipped=checks_skipped,
+            limitations=limitations,
+            overall_status=overall_status,
         )
         return report
 
@@ -221,3 +305,4 @@ class ReviewEngine:
             reconciled.append(new_f)
 
         return reconciled
+

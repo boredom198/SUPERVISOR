@@ -74,3 +74,4 @@ class RepairHandoff:
         out_file.write_text(directive_text, encoding="utf-8")
 
         return directive_text
+

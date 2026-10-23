@@ -192,3 +192,4 @@ class StateManager:
                 curr.state = LifecycleState.FIXES_REQUIRED
         self.save(curr)
         return curr
+

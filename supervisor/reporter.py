@@ -22,7 +22,8 @@ class ReportGenerator:
         """Renders report into GitHub-flavored Markdown following the Stage 5 specification."""
         lines = []
         lines.append(f"# SUPERVISOR Review Report (Cycle {report.cycle})")
-        lines.append(f"**Report ID**: `{report.report_id}` | **Task ID**: `{report.task_id}` | **Status**: `{report.state.value}`")
+        lines.append(f"**Report ID**: `{report.report_id}` | **Task ID**: `{report.task_id}`")
+        lines.append(f"**Overall Status**: `{report.overall_status.value}` | **Lifecycle State**: `{report.state.value}`")
         lines.append(f"**Generated**: `{report.created_at}`")
         lines.append("")
 
@@ -34,16 +35,34 @@ class ReportGenerator:
         if report.blocker_reason:
             lines.append(f"> [!CAUTION]\n> **Verification Blocked**: {report.blocker_reason}\n")
 
+        # Limitations section
+        if report.limitations:
+            lines.append("## Verification Scope & Limitations")
+            for lim in report.limitations:
+                lines.append(f"- {lim}")
+            lines.append("")
+
+        # Checks Executed & Skipped
+        if report.checks_executed or report.checks_skipped:
+            lines.append("## Execution & Check Records")
+            lines.append("| Check Name | Target | Status | Reason / Details |")
+            lines.append("| :--- | :--- | :--- | :--- |")
+            for c in report.checks_executed:
+                lines.append(f"| `{c.check_name}` | `{c.target}` | **{c.status}** | {c.reason or '-'} |")
+            for c in report.checks_skipped:
+                lines.append(f"| `{c.check_name}` | `{c.target}` | *{c.status}* | {c.reason or '-'} |")
+            lines.append("")
+
         # Tests executed section
         lines.append("## Validation & Tests Executed")
         if not report.tests_run:
             lines.append("*(No automated test commands were configured or executed during this cycle.)*")
         else:
-            lines.append("| Command | Result | Exit Code | Duration |")
-            lines.append("| :--- | :--- | :--- | :--- |")
+            lines.append("| Command | Result | Status | Exit Code | Duration |")
+            lines.append("| :--- | :--- | :--- | :--- | :--- |")
             for t in report.tests_run:
-                status_icon = "PASS" if t.passed else "FAIL"
-                lines.append(f"| `{t.command}` | **{status_icon}** | `{t.exit_code}` | {t.duration_seconds}s |")
+                status_icon = "PASS" if t.passed else ("N/A" if t.status.value == "NOT_AVAILABLE" else "FAIL")
+                lines.append(f"| `{t.command}` | **{status_icon}** | `{t.status.value}` | `{t.exit_code}` | {t.duration_seconds}s |")
         lines.append("")
 
         # Findings Summary Table
@@ -51,14 +70,14 @@ class ReportGenerator:
         if not report.findings:
             lines.append("> [!NOTE]\n> No findings were identified. Implementation passed verification.\n")
         else:
-            lines.append("| Finding ID | Severity | Category | Status | File & Location | Description |")
-            lines.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+            lines.append("| Finding ID | Severity | Category | Confidence | Status | File & Location | Description |")
+            lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
             for f in report.findings:
                 loc = f"{f.file_path}"
                 if f.line_number:
                     loc += f":{f.line_number}"
                 desc_short = f.description[:75] + ("..." if len(f.description) > 75 else "")
-                lines.append(f"| `{f.finding_id}` | **{f.severity.value}** | `{f.category.value}` | `{f.status.value}` | `{loc}` | {desc_short} |")
+                lines.append(f"| `{f.finding_id}` | **{f.severity.value}** | `{f.category.value}` | `{f.confidence.value}` | `{f.status.value}` | `{loc}` | {desc_short} |")
             lines.append("")
 
             # Detailed Findings
@@ -67,6 +86,8 @@ class ReportGenerator:
                 lines.append(f"### `{f.finding_id}`: {f.description}")
                 lines.append(f"- **Severity**: `{f.severity.value}`")
                 lines.append(f"- **Category**: `{f.category.value}`")
+                lines.append(f"- **Confidence**: `{f.confidence.value}`")
+                lines.append(f"- **Source Check**: `{f.source_check}`")
                 lines.append(f"- **Current Status**: `{f.status.value}`")
                 loc_full = f.file_path + (f":{f.line_number}" if f.line_number else "")
                 lines.append(f"- **Affected Location**: `{loc_full}`")
@@ -104,3 +125,4 @@ class TuplePath:
     def __init__(self, md_path: Path, json_path: Path):
         self.md_path = md_path
         self.json_path = json_path
+
