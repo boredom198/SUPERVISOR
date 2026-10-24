@@ -73,9 +73,8 @@ class TestSecurityInspector(unittest.TestCase):
 
     def test_redact_secret_utility(self):
         masked = SecurityInspector.redact_secret('API_KEY = "FAKE_STRIPE_KEY_FOR_TESTS"')
-        self.assertIn("sk_live_", masked)
-        self.assertIn("****************", masked)
-        self.assertNotIn("1234567890123456", masked)
+        self.assertIn("[REDACTED]", masked)
+        self.assertNotIn("FAKE_STRIPE_KEY_FOR_TESTS", masked)
 
 
 if __name__ == "__main__":

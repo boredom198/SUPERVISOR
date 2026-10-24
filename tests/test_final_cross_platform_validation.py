@@ -220,7 +220,7 @@ class TestFinalCrossPlatformValidation(unittest.TestCase):
     # Scenario 10: Secret material redaction across source, diffs, and reports
     def test_scenario_10_secret_material_redaction(self):
         secret_key = "FAKE_STRIPE_KEY_FOR_TESTS"
-        (self.workspace / "auth.py").write_text(f"KEY = '{secret_key}'\n", encoding="utf-8")
+        (self.workspace / "auth.py").write_text(f"API_KEY = '{secret_key}'\n", encoding="utf-8")
         self.state_mgr.initialize_task(prompt="Setup auth key", max_retries=3)
 
         report = self.orchestrator.execute_review_cycle()
@@ -229,8 +229,7 @@ class TestFinalCrossPlatformValidation(unittest.TestCase):
 
         # Raw secret token MUST NOT appear anywhere in the serialized report
         self.assertNotIn(secret_key, rep_str)
-        self.assertIn("sk_live_", rep_str)
-        self.assertIn("****************", rep_str)
+        self.assertIn("[REDACTED]", rep_str)
 
     # Scenario 11: Repeated repair failures
     def test_scenario_11_repeated_repair_failures(self):

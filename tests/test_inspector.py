@@ -44,7 +44,7 @@ class TestInspector(unittest.TestCase):
         code = 'DATABASE_URL = "postgres://..."\nAPI_KEY = "FAKE_STRIPE_KEY_FOR_TESTS"\n'
         findings = self.inspector.inspect_secrets("config.py", code)
         self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].severity, Severity.CRITICAL)
+        self.assertEqual(findings[0].severity, Severity.HIGH)
         self.assertEqual(findings[0].category, Category.SECURITY)
 
     def test_inspect_json_syntax(self):

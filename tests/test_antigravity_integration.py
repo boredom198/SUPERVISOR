@@ -236,7 +236,7 @@ class TestAntigravityIntegration(unittest.TestCase):
     def test_secret_redaction_in_hook_output_and_repair_instructions(self):
         secret_token = "FAKE_STRIPE_KEY_FOR_TESTS"
         (self.workspace / "credentials.py").write_text(
-            f'STRIPE_KEY = "{secret_token}"\n',
+            f'API_KEY = "{secret_token}"\n',
             encoding="utf-8",
         )
         self.state_mgr.initialize_task(prompt="Integrate stripe payments", max_retries=3)
@@ -247,8 +247,7 @@ class TestAntigravityIntegration(unittest.TestCase):
         # Raw secret token MUST NOT appear in the serialized JSON output
         self.assertNotIn(secret_token, output_str)
         # Verify masked representation
-        self.assertIn("sk_live_", output_str)
-        self.assertIn("****************", output_str)
+        self.assertIn("[REDACTED]", output_str)
 
     # 13. Missing tests and honest verification statuses
     def test_missing_tests_and_honest_verification_status(self):

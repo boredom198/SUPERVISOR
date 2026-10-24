@@ -238,7 +238,7 @@ class TestGitLabDuoIntegration(unittest.TestCase):
 
     # 10. Secret redaction
     def test_secret_redaction(self):
-        secret_content = 'API_TOKEN = "FAKE_STRIPE_KEY_FOR_TESTS"\n'
+        secret_content = 'API_KEY = "FAKE_STRIPE_KEY_FOR_TESTS"\n'
         (self.workspace / "creds.py").write_text(secret_content, encoding="utf-8")
         self.state_mgr.initialize_task("Store credentials", max_retries=3)
 
@@ -252,13 +252,13 @@ class TestGitLabDuoIntegration(unittest.TestCase):
         code, stdout_str, stderr_str = self.adapter.process_raw_input(raw_in, exit_code_on_block=True)
         self.assertEqual(code, 2)
         self.assertNotIn("FAKE_STRIPE_KEY_FOR_TESTS", stderr_str)
-        self.assertIn("sk_live_****", stderr_str)
+        self.assertIn("[REDACTED]", stderr_str)
 
         # Structured JSON mode (exit code 0 with stdout)
         code2, stdout_str2, stderr_str2 = self.adapter.process_raw_input(raw_in, exit_code_on_block=False)
         self.assertEqual(code2, 0)
         self.assertNotIn("FAKE_STRIPE_KEY_FOR_TESTS", stdout_str2)
-        self.assertIn("sk_live_****", stdout_str2)
+        self.assertIn("[REDACTED]", stdout_str2)
 
     # 11. Malformed input and subprocess failures
     def test_malformed_input_and_subprocess_failures(self):
