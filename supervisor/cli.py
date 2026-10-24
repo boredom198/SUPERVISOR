@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     # verify
     verify_p = subparsers.add_parser("verify", help="Verify corrections after coding agent repairs")
     verify_p.add_argument("--test-cmd", type=str, default=None, help="Explicit test command to run")
+    verify_p.add_argument("--report-only", action="store_true", help="Generate report without updating state or advancing cycle")
 
     # status
     subparsers.add_parser("status", help="Display current lifecycle state and active findings")
@@ -97,14 +98,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         md = reporter.to_markdown(report)
         print(md)
+        if report.state == LifecycleState.BLOCKED or report.blocker_reason:
+            return 2
         return 0 if not report.has_material_issues else 1
 
     elif args.subcommand == "verify":
         report = orchestrator.execute_verification_cycle(
             test_command=args.test_cmd,
+            report_only=getattr(args, "report_only", False),
         )
         md = reporter.to_markdown(report)
         print(md)
+        if report.state == LifecycleState.BLOCKED or report.blocker_reason:
+            return 2
         return 0 if not report.has_material_issues else 1
 
     return 0

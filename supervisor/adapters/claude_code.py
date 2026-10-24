@@ -71,8 +71,13 @@ class ClaudeCodeAdapter:
             LifecycleState.BLOCKED,
         }:
             context = orchestrator.context_collector.collect()
-            has_changes = bool(context.changed_files or context.untracked_files)
-            if not has_changes and curr_state.latest_report:
+            unreviewed = state_mgr.has_unreviewed_changes(
+                latest_report=curr_state.latest_report,
+                current_fingerprint=context.workspace_fingerprint,
+                git_changed=context.changed_files,
+                git_untracked=context.untracked_files,
+            )
+            if not unreviewed and curr_state.latest_report:
                 return (
                     0,
                     {
@@ -91,17 +96,9 @@ class ClaudeCodeAdapter:
             )
 
         # 5. Check for duplicate hook event or recursive review
-        if curr_state.state == LifecycleState.REVIEWING or (payload.get("stop_hook_active") is True and curr_state.state == LifecycleState.REPAIRING):
-            is_stale = False
-            try:
-                state_time = datetime.fromisoformat(curr_state.updated_at)
-                age = (datetime.now(timezone.utc) - state_time).total_seconds()
-                if age > 30:
-                    is_stale = True
-            except Exception:
-                is_stale = True
-
-            if not is_stale and curr_state.state == LifecycleState.REVIEWING:
+        in_progress, is_abandoned = state_mgr.is_review_active(curr_state)
+        if in_progress:
+            if not is_abandoned:
                 return (
                     0,
                     {
@@ -110,12 +107,12 @@ class ClaudeCodeAdapter:
                     },
                     "",
                 )
-            if is_stale and curr_state.state == LifecycleState.REVIEWING:
-                state_mgr.transition_to(
-                    LifecycleState.IMPLEMENTING,
-                    "Recovered from interrupted or timed-out REVIEWING state in Claude Code.",
-                )
-                curr_state = state_mgr.load()
+            # Abandoned review (process died or timed out): recover safely
+            state_mgr.transition_to(
+                LifecycleState.IMPLEMENTING,
+                "Recovered from interrupted or timed-out REVIEWING state in Claude Code.",
+            )
+            curr_state = state_mgr.load()
 
         # 6. Execute review or verification cycle
         try:

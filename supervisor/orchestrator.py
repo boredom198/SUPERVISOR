@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -9,6 +10,7 @@ from supervisor.context import ContextCollector, WorkspaceContext
 from supervisor.models import (
     FindingStatus,
     LifecycleState,
+    ReviewStatus,
     Severity,
     SupervisorReport,
 )
@@ -33,6 +35,18 @@ class SupervisorOrchestrator:
         self.repair_handoff = RepairHandoff(self.workspace_root)
         self.verifier = VerificationEngine(self.workspace_root)
 
+    def has_unreviewed_changes(self, state: Optional[SupervisorState] = None) -> bool:
+        """Checks if current workspace differs from latest report fingerprint or git status."""
+        curr = state or self.state_mgr.load()
+        fp = self.context_collector.compute_workspace_fingerprint()
+        _, changed, untracked, _ = self.context_collector.inspect_git()
+        return self.state_mgr.has_unreviewed_changes(
+            latest_report=curr.latest_report,
+            current_fingerprint=fp,
+            git_changed=changed,
+            git_untracked=untracked,
+        )
+
     def execute_review_cycle(
         self,
         prompt: Optional[str] = None,
@@ -43,14 +57,35 @@ class SupervisorOrchestrator:
         """Runs a review cycle, updates state, and generates reports."""
         state = self.state_mgr.load()
 
+        # Determine prompt: explicit prompt or discovered from transcript matching current workspace
+        discovered_prompt = prompt or self.context_collector.find_transcript_prompt()
+
+        # If previous session was in a terminal state (PASSED, RETRY_LIMIT_REACHED, BLOCKED)
+        # and unreviewed changes exist or a new prompt was provided, initialize a fresh session
+        is_terminal = state.state in {
+            LifecycleState.PASSED,
+            LifecycleState.RETRY_LIMIT_REACHED,
+            LifecycleState.BLOCKED,
+        }
+        has_new_prompt = bool(discovered_prompt and state.task and discovered_prompt != state.task.prompt)
+        if is_terminal and (prompt or has_new_prompt or self.has_unreviewed_changes(state)):
+            state = self.state_mgr.initialize_task(
+                prompt=discovered_prompt or (prompt or ""),
+                task_id=task_id,
+                max_retries=state.max_retries,
+            )
+
         # Guard against duplicate recursive review if already reviewing
         if state.state == LifecycleState.REVIEWING:
             pass  # proceed safely
 
         self.state_mgr.transition_to(LifecycleState.REVIEWING, "Starting review cycle.")
+        state = self.state_mgr.load()
+        state.active_pid = os.getpid()
+        self.state_mgr.save(state)
 
         # Determine task & context
-        active_prompt = prompt or (state.task.prompt if state.task else "")
+        active_prompt = discovered_prompt or (state.task.prompt if state.task else "")
         active_task_id = task_id or (state.task.task_id if state.task else "task_auto")
 
         context = self.context_collector.collect(
@@ -58,8 +93,8 @@ class SupervisorOrchestrator:
             task_id=active_task_id,
         )
 
-        # Update task in state if missing
-        if not state.task or prompt:
+        # Update task in state if missing or new prompt provided
+        if not state.task or prompt or has_new_prompt or (state.task.prompt in ("", "UNAVAILABLE") and context.task.prompt not in ("", "UNAVAILABLE")):
             state.task = context.task
             self.state_mgr.save(state)
 
@@ -70,22 +105,28 @@ class SupervisorOrchestrator:
             previous_report=state.latest_report,
             test_command=test_command,
         )
-
-        # Save reports to disk
-        self.reporter.save_reports(report)
+        report.workspace_fingerprint = context.workspace_fingerprint
 
         # Determine next state
         if not report.has_material_issues:
-            self.state_mgr.transition_to(
-                LifecycleState.PASSED, "Implementation passed all checks."
-            )
-            report.state = LifecycleState.PASSED
+            if report.blocker_reason or report.overall_status == ReviewStatus.BLOCKED:
+                self.state_mgr.transition_to(
+                    LifecycleState.BLOCKED,
+                    f"Review blocked: {report.blocker_reason or 'Environment blocker.'}",
+                )
+                report.state = LifecycleState.BLOCKED
+            else:
+                self.state_mgr.transition_to(
+                    LifecycleState.PASSED, "Implementation passed all checks."
+                )
+                report.state = LifecycleState.PASSED
         else:
             if report_only:
                 self.state_mgr.transition_to(
                     LifecycleState.FIXES_REQUIRED,
                     "Report-only mode: findings saved, repairs not initiated.",
                 )
+                report.state = LifecycleState.FIXES_REQUIRED
             elif state.cycle >= state.max_retries:
                 self.state_mgr.transition_to(
                     LifecycleState.RETRY_LIMIT_REACHED,
@@ -97,56 +138,56 @@ class SupervisorOrchestrator:
                     LifecycleState.FIXES_REQUIRED,
                     f"Material findings detected at cycle {state.cycle}. Auto-repair required.",
                 )
+                report.state = LifecycleState.FIXES_REQUIRED
                 # Generate actionable repair directives
                 self.repair_handoff.generate_repair_prompt(
                     report=report,
                     original_task=state.task.prompt if state.task else None,
                 )
 
+        # Save reports to disk after state is established
+        self.reporter.save_reports(report)
+
         state = self.state_mgr.load()
+        state.active_pid = None
+        state.workspace_fingerprint = context.workspace_fingerprint
         state.latest_report = report
+        state.state = report.state
+        if state.cycle > state.max_retries:
+            state.cycle = state.max_retries
         self.state_mgr.save(state)
         return report
 
     def execute_verification_cycle(
         self,
         test_command: Optional[str] = None,
+        report_only: bool = False,
     ) -> SupervisorReport:
         """Verifies corrections after a repair cycle (Stage 7)."""
         state = self.state_mgr.load()
         if not state.latest_report:
             # Fall back to review
-            return self.execute_review_cycle(test_command=test_command)
+            return self.execute_review_cycle(test_command=test_command, report_only=report_only)
 
-        self.state_mgr.transition_to(
-            LifecycleState.VERIFYING, "Verifying repair corrections."
-        )
+        # Advance cycle counter ONLY if previous report had material issues (a repair was attempted) and not report_only
+        if state.latest_report.has_material_issues and not report_only:
+            state.cycle = min(state.cycle + 1, state.max_retries)
+        elif state.cycle > state.max_retries:
+            state.cycle = state.max_retries
+        self.state_mgr.save(state)
+
+        if not report_only:
+            self.state_mgr.transition_to(
+                LifecycleState.VERIFYING, "Verifying repair corrections."
+            )
+        state = self.state_mgr.load()
+        state.active_pid = os.getpid()
+        self.state_mgr.save(state)
 
         context = self.context_collector.collect(
             explicit_prompt=state.task.prompt if state.task else "",
             task_id=state.task.task_id if state.task else "task_auto",
         )
-
-        # Advance cycle counter if repairs were attempted
-        next_cycle = state.cycle + 1
-        if next_cycle > state.max_retries:
-            summary = self.verifier.verify_cycle(
-                context=context,
-                previous_report=state.latest_report,
-                cycle=state.cycle,
-                test_command=test_command,
-            )
-            report = summary.report or state.latest_report
-            report.state = LifecycleState.RETRY_LIMIT_REACHED
-            self.reporter.save_reports(report)
-            state.cycle = next_cycle
-            state.state = LifecycleState.RETRY_LIMIT_REACHED
-            state.latest_report = report
-            self.state_mgr.save(state)
-            return report
-
-        state.cycle = next_cycle
-        self.state_mgr.save(state)
 
         summary = self.verifier.verify_cycle(
             context=context,
@@ -156,32 +197,54 @@ class SupervisorOrchestrator:
         )
 
         report = summary.report or state.latest_report
-        self.reporter.save_reports(report)
+        report.workspace_fingerprint = context.workspace_fingerprint
+        report.cycle = state.cycle
 
         if summary.passed:
-            self.state_mgr.transition_to(
-                LifecycleState.PASSED, "Verification passed all checks."
-            )
-            report.state = LifecycleState.PASSED
+            if report.blocker_reason or report.overall_status == ReviewStatus.BLOCKED:
+                if not report_only:
+                    self.state_mgr.transition_to(
+                        LifecycleState.BLOCKED,
+                        f"Review blocked: {report.blocker_reason or 'Environment blocker.'}",
+                    )
+                report.state = LifecycleState.BLOCKED
+            else:
+                if not report_only:
+                    self.state_mgr.transition_to(
+                        LifecycleState.PASSED, "Verification passed all checks."
+                    )
+                report.state = LifecycleState.PASSED
         else:
-            if state.cycle >= state.max_retries:
+            # Verification failed: check if retry limit is reached
+            if report_only:
+                report.state = LifecycleState.FIXES_REQUIRED
+            elif state.cycle >= state.max_retries:
                 self.state_mgr.transition_to(
                     LifecycleState.RETRY_LIMIT_REACHED,
-                    "Retry limit reached during verification.",
+                    f"Retry limit ({state.cycle}/{state.max_retries}) reached during verification.",
                 )
                 report.state = LifecycleState.RETRY_LIMIT_REACHED
             else:
                 self.state_mgr.transition_to(
                     LifecycleState.FIXES_REQUIRED,
-                    "Verification failed: fixes still required.",
+                    f"Verification failed at cycle {state.cycle}. Fixes required.",
                 )
+                report.state = LifecycleState.FIXES_REQUIRED
                 self.repair_handoff.generate_repair_prompt(
                     report=report,
                     original_task=state.task.prompt if state.task else None,
                 )
 
+        self.reporter.save_reports(report)
+
         state = self.state_mgr.load()
+        state.active_pid = None
+        state.workspace_fingerprint = context.workspace_fingerprint
         state.latest_report = report
+        if not report_only:
+            state.state = report.state
+        if state.cycle > state.max_retries:
+            state.cycle = state.max_retries
         self.state_mgr.save(state)
         return report
 

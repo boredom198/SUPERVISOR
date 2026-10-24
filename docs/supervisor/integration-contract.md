@@ -103,14 +103,22 @@ class RepairDirectiveContract(abc.ABC):
 
 ## 3. Four-Platform Capabilities & Evidence Matrix
 
-The table below summarizes the four implemented platform integrations, their completion enforcement models, and verified evidence levels:
+The table below summarizes the four implemented platform integrations, their completion enforcement models, and verified evidence levels based on the rigorous 6-tier validation taxonomy:
 
-| Platform | Implemented | Unit-Tested | Subprocess-Tested | Verified Against Docs | Tested Against Host | Automatic Repair Supported | Remaining Limitations |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Google Antigravity** | Yes (`AntigravityAdapter`) | Yes (15 tests) | Yes (`test_real_lifecycle_fixture.py`) | Yes (Antigravity built-in docs) | Yes (Current host environment) | Full autonomous handoff (`decision: continue`) | Subagent concurrency isolation relies on process locks |
-| **OpenAI Codex** | Yes (`CodexAdapter`) | Yes (14 tests) | Yes (`test_codex_real_lifecycle_fixture.py`) | Yes (Codex hook & CLI docs) | Subprocess protocol simulated | Full autonomous handoff (`decision: block` / Exit 2) | Live Codex API token required for cloud execution |
-| **Claude Code** | Yes (`ClaudeCodeAdapter`) | Yes (16 tests) | Yes (`test_claude_code_real_lifecycle_fixture.py`) | Yes (Claude Code settings docs) | Subprocess protocol simulated | Full autonomous handoff (`decision: block` / Exit 2) | External Claude Code CLI binary not invoked directly |
-| **GitLab Duo CLI** | Yes (`GitLabDuoAdapter`) | Yes (16 tests) | Yes (`test_gitlab_duo_real_lifecycle_fixture.py`) | Yes (GitLab Duo CLI hooks & chat docs) | Subprocess protocol simulated | Full autonomous handoff (Exit 2 stderr / JSON block) | Live GitLab Duo GUI/cloud session not run in this environment |
+* **Level 1 (Implemented)**: Adapter, CLI hook handler, and project configuration exist.
+* **Level 2 (Unit-tested)**: Individual adapter components and input parsers pass automated tests.
+* **Level 3 (Subprocess-tested)**: Real CLI hook executables and lifecycle cycles execute successfully in unmocked subprocesses.
+* **Level 4 (Documentation-verified)**: Hook event names, stdin/stdout/stderr contracts, and exit codes verified against official platform specifications.
+* **Level 5 (Live-host-tested)**: Verified directly in the actual coding-agent host environment.
+* **Level 6 (Automatic repair demonstrated)**: The actual coding agent receives the defect finding, modifies the code without a new user prompt, and triggers a successful subsequent review.
+
+| Platform | Hook Mechanism | Blocking Protocol | Level 1: Impl | Level 2: Unit | Level 3: Subprocess | Level 4: Docs | Level 5: Host | Level 6: Auto-Repair Demo | Status & Limitations |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Google Antigravity** | `.agents/hooks.json` (`Stop`) | `decision: "continue"` | **YES** | **YES** (15 tests) | **YES** (`test_real_lifecycle_fixture.py`) | **YES** (Built-in AGY docs) | **YES** (Verified in AGY session) | **YES** (Demonstrated in Prompt 6) | **Production Verified** in Google Antigravity. |
+| **OpenAI Codex** | `.codex/hooks.json` (`Stop`) | `decision: "block"` / Exit 2 | **YES** | **YES** (14 tests) | **YES** (`test_codex_real_lifecycle_fixture.py`) | **YES** (Codex CLI docs) | *Simulated* | *Simulated* | Fully verified via unmocked subprocess; live cloud execution requires API key. |
+| **Claude Code** | `.claude/settings.json` (`Stop`) | `decision: "block"` / Exit 2 | **YES** | **YES** (16 tests) | **YES** (`test_claude_code_real_lifecycle_fixture.py`) | **YES** (Claude settings docs) | *Simulated* | *Simulated* | Fully verified via unmocked subprocess; external binary invocation requires host CLI. |
+| **GitLab Duo CLI** | `.gitlab/duo/hooks.json` (`Stop`) | Exit code 2 on stderr | **YES** | **YES** (16 tests) | **YES** (`test_gitlab_duo_real_lifecycle_fixture.py`) | **YES** (GitLab Duo CLI docs) | *Simulated* | *Simulated* | Fully verified via unmocked subprocess; live GitLab GUI requires Duo seat. |
+
 
 ---
 

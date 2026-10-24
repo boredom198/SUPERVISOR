@@ -4,13 +4,50 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from supervisor.models import LifecycleState, SupervisorReport, TaskSpec
+
+
+def is_pid_alive(pid: Optional[int]) -> bool:
+    """Checks whether a process with the given PID is currently alive."""
+    if not pid or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            exit_code = ctypes.c_ulong()
+            res = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            kernel32.CloseHandle(handle)
+            return bool(res and exit_code.value == STILL_ACTIVE)
+        except Exception:
+            try:
+                proc = subprocess.run(
+                    ["tasklist", "/fi", f"PID eq {pid}", "/fo", "csv"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                return str(pid) in proc.stdout
+            except Exception:
+                return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 @dataclass
@@ -22,6 +59,8 @@ class SupervisorState:
     max_retries: int = 3
     task: Optional[TaskSpec] = None
     latest_report: Optional[SupervisorReport] = None
+    active_pid: Optional[int] = None
+    workspace_fingerprint: str = ""
     history: List[Dict[str, Any]] = field(default_factory=list)
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -39,6 +78,8 @@ class SupervisorState:
             "latest_report": (
                 self.latest_report.to_dict() if self.latest_report else None
             ),
+            "active_pid": self.active_pid,
+            "workspace_fingerprint": self.workspace_fingerprint,
             "history": self.history,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -46,16 +87,22 @@ class SupervisorState:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> SupervisorState:
+        max_retries_val = d.get("max_retries", 3)
+        cycle_val = d.get("cycle", 1)
+        if max_retries_val > 0 and cycle_val > max_retries_val:
+            cycle_val = max_retries_val
         return cls(
             state=LifecycleState(d.get("state", LifecycleState.IMPLEMENTING.value)),
-            cycle=d.get("cycle", 1),
-            max_retries=d.get("max_retries", 3),
+            cycle=cycle_val,
+            max_retries=max_retries_val,
             task=TaskSpec.from_dict(d["task"]) if d.get("task") else None,
             latest_report=(
                 SupervisorReport.from_dict(d["latest_report"])
                 if d.get("latest_report")
                 else None
             ),
+            active_pid=d.get("active_pid"),
+            workspace_fingerprint=d.get("workspace_fingerprint", ""),
             history=d.get("history", []),
             created_at=d.get("created_at", datetime.now(timezone.utc).isoformat()),
             updated_at=d.get("updated_at", datetime.now(timezone.utc).isoformat()),
@@ -89,6 +136,8 @@ class StateManager:
 
     def save(self, state: SupervisorState) -> None:
         """Atomically saves state to disk."""
+        if state.max_retries > 0 and state.cycle > state.max_retries:
+            state.cycle = state.max_retries
         self.supervisor_dir.mkdir(parents=True, exist_ok=True)
         state.updated_at = datetime.now(timezone.utc).isoformat()
         serialized = json.dumps(state.to_dict(), indent=2)
@@ -192,4 +241,58 @@ class StateManager:
                 curr.state = LifecycleState.FIXES_REQUIRED
         self.save(curr)
         return curr
+
+    def is_review_active(
+        self, state: Optional[SupervisorState] = None
+    ) -> Tuple[bool, bool]:
+        """Evaluates whether a review is currently active and whether it is abandoned.
+
+        Returns:
+            Tuple[in_progress: bool, is_abandoned: bool]
+        """
+        curr = state or self.load()
+        if curr.state != LifecycleState.REVIEWING:
+            return False, False
+
+        # If active_pid was recorded, verify process liveness
+        if curr.active_pid:
+            if curr.active_pid == os.getpid():
+                # Current process is running the review
+                return True, False
+            alive = is_pid_alive(curr.active_pid)
+            if alive:
+                return True, False
+            else:
+                # Process died or was killed without clearing reviewing state
+                return True, True
+
+        # Fallback if no PID recorded: use age threshold (safe bound: 60s)
+        try:
+            state_time = datetime.fromisoformat(curr.updated_at)
+            age = (datetime.now(timezone.utc) - state_time).total_seconds()
+            if age > 60:
+                return True, True
+        except Exception:
+            return True, True
+
+        return True, False
+
+    def has_unreviewed_changes(
+        self,
+        latest_report: Optional[SupervisorReport],
+        current_fingerprint: str,
+        git_changed: List[str],
+        git_untracked: List[str],
+    ) -> bool:
+        """Determines if the workspace has changed since the latest report."""
+        if not latest_report:
+            return bool(git_changed or git_untracked or current_fingerprint)
+        # Check git status modifications
+        if git_changed or git_untracked:
+            return True
+        # Check workspace fingerprint for non-git workspaces or staged file modifications
+        rep_fp = getattr(latest_report, "workspace_fingerprint", None)
+        if rep_fp and current_fingerprint and rep_fp != current_fingerprint:
+            return True
+        return False
 

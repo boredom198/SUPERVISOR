@@ -19,14 +19,20 @@ class TestRunner:
     def __init__(
         self,
         workspace_root: Optional[Path | str] = None,
-        timeout_seconds: int = 30,
+        timeout_seconds: Optional[int] = None,
         max_output_chars: int = 4000,
         allow_repo_scripts: bool = True,
     ):
         self.workspace_root = (
             Path(workspace_root) if workspace_root else Path.cwd()
         ).resolve()
-        self.timeout_seconds = timeout_seconds
+        if timeout_seconds is not None:
+            self.timeout_seconds = timeout_seconds
+        else:
+            try:
+                self.timeout_seconds = int(os.environ.get("SUPERVISOR_TEST_TIMEOUT", "60"))
+            except ValueError:
+                self.timeout_seconds = 60
         self.max_output_chars = max_output_chars
         self.allow_repo_scripts = allow_repo_scripts
 

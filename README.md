@@ -136,12 +136,19 @@ Generated reports are persisted in:
 
 ---
 
-## 6. Testing
+## 6. Testing & Validation
 
-The system includes a 28-test comprehensive suite covering models, state management, AST inspection, test runner, review engine, reporter, repair handoff, verification, and end-to-end lifecycle simulation:
+The system includes a 127-test comprehensive test suite covering core data models, state management, AST inspection, test runner, review engine, reporter, repair handoff, verification, unmocked subprocess lifecycle fixtures across all four platforms, and cross-platform validation:
 
 ```powershell
+# Run the complete test suite (127 tests)
 python -m unittest discover -s tests -v
+
+# Run SUPERVISOR self-verification
+python -m supervisor verify
+
+# Run cross-platform lifecycle validation
+python -m unittest tests/test_final_cross_platform_validation.py -v
 ```
 
 ---

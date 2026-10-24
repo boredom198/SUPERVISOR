@@ -26,6 +26,7 @@ class WorkspaceContext:
     is_git_repo: bool = False
     has_explicit_prompt: bool = True
     limitations: List[str] = field(default_factory=list)
+    workspace_fingerprint: str = ""
 
 
 class ContextCollector:
@@ -101,17 +102,43 @@ class ContextCollector:
             if brain_dir.exists():
                 try:
                     for sub in brain_dir.iterdir():
-                        tpath = sub / ".system_generated" / "logs" / "transcript.jsonl"
-                        if tpath.exists():
-                            candidates.append(tpath)
+                        try:
+                            tpath = sub / ".system_generated" / "logs" / "transcript.jsonl"
+                            if tpath.is_file():
+                                candidates.append(tpath)
+                        except OSError:
+                            continue
                 except OSError:
                     pass
 
+        def _safe_mtime(p: Path) -> float:
+            try:
+                return p.stat().st_mtime
+            except OSError:
+                return 0.0
+
+        # Sort candidates by mtime descending (most recently updated first)
+        candidates.sort(key=_safe_mtime, reverse=True)
+
+        workspace_name = self.workspace_root.name.lower()
+        workspace_str = str(self.workspace_root).lower()
+
+        # Candidate transcripts must match this workspace (or be explicitly specified)
         for c in candidates:
-            if c.exists():
+            try:
                 prompt = self._extract_prompt_from_file(c)
                 if prompt:
-                    return prompt
+                    if transcript_path and c == Path(transcript_path):
+                        return prompt
+                    try:
+                        content_sample = c.read_text(encoding="utf-8", errors="ignore")[:50000]
+                        if workspace_name in content_sample.lower() or workspace_str in content_sample.lower():
+                            return prompt
+                    except OSError:
+                        pass
+            except Exception:
+                continue
+
         return None
 
     def _extract_prompt_from_file(self, transcript_file: Path) -> Optional[str]:
@@ -292,6 +319,7 @@ class ContextCollector:
 
         all_relevant = list(dict.fromkeys(changed + untracked))
         file_contents = self.read_workspace_files(all_relevant if all_relevant else None)
+        fingerprint = self.compute_workspace_fingerprint()
 
         return WorkspaceContext(
             task=task,
@@ -303,4 +331,31 @@ class ContextCollector:
             is_git_repo=is_git,
             has_explicit_prompt=has_explicit,
             limitations=limitations,
+            workspace_fingerprint=fingerprint,
         )
+
+    def compute_workspace_fingerprint(self) -> str:
+        """Computes a deterministic hash of workspace files, sizes, and mtimes.
+
+        Guarantees change detection across both Git and non-Git repositories.
+        """
+        import hashlib
+        h = hashlib.sha256()
+        try:
+            for root, dirs, files in os.walk(str(self.workspace_root)):
+                dirs[:] = sorted([d for d in dirs if d not in self.IGNORED_DIRS])
+                for f in sorted(files):
+                    fpath = Path(root) / f
+                    if not self.is_safe_path(fpath):
+                        continue
+                    if fpath.suffix.lower() not in self.TEXT_EXTENSIONS:
+                        continue
+                    try:
+                        st = fpath.stat()
+                        rel = os.path.relpath(str(fpath), str(self.workspace_root))
+                        h.update(f"{rel}:{st.st_size}:{st.st_mtime_ns}\n".encode("utf-8"))
+                    except OSError:
+                        continue
+        except OSError:
+            pass
+        return h.hexdigest()

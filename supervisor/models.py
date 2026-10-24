@@ -287,6 +287,7 @@ class SupervisorReport:
     checks_skipped: List[CheckRecord] = field(default_factory=list)
     limitations: List[str] = field(default_factory=list)
     overall_status: ReviewStatus = ReviewStatus.PASSED
+    workspace_fingerprint: str = ""
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -328,6 +329,7 @@ class SupervisorReport:
             "checks_executed": [c.to_dict() for c in self.checks_executed],
             "checks_skipped": [c.to_dict() for c in self.checks_skipped],
             "limitations": self.limitations,
+            "workspace_fingerprint": self.workspace_fingerprint,
             "changed_files": self.changed_files,
             "summary": self.summary,
             "blocker_reason": self.blocker_reason,
@@ -349,6 +351,7 @@ class SupervisorReport:
             checks_skipped=[CheckRecord.from_dict(c) for c in d.get("checks_skipped", [])],
             limitations=d.get("limitations", []),
             overall_status=overall,
+            workspace_fingerprint=d.get("workspace_fingerprint", ""),
             changed_files=d.get("changed_files", []),
             summary=d.get("summary", ""),
             blocker_reason=d.get("blocker_reason"),
