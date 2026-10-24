@@ -53,10 +53,10 @@ From workspace inspection and environment metadata:
 * **Host Operating System**: Windows 11 (64-bit)
 * **Active Surface**: **Antigravity App (Desktop 2.0)**
 * **Python Runtime**: Python 3.12.0 (`python.exe` accessible in PATH)
-* **Filesystem Root**: `c:\Users\DELL\Downloads\SUPERVISOR`
-* **App Data / Logs Root**: `C:\Users\DELL\.gemini\antigravity\`
-* **Conversation ID**: `44294bfd-9a99-4312-b2c4-f945b5134b60`
-* **Transcript Path**: `C:\Users\DELL\.gemini\antigravity\brain\44294bfd-9a99-4312-b2c4-f945b5134b60\.system_generated\logs\transcript.jsonl`
+* **Filesystem Root**: Workspace root directory
+* **App Data / Logs Root**: `<appDataDir>/antigravity/`
+* **Conversation ID**: `<conversation-id>`
+* **Transcript Path**: `<appDataDir>/antigravity/brain/<conversation-id>/.system_generated/logs/transcript.jsonl`
 
 ---
 

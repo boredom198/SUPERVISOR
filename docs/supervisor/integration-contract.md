@@ -174,7 +174,7 @@ The native Google Antigravity integration is fully implemented through a decoupl
 
 ### B. Confirmed vs. Mocked Verification:
 * **Hook Payload Parsing & Output Formatting**: Confirmed via 15 comprehensive automated integration tests in `tests/test_antigravity_integration.py`.
-* **Autonomous Continuation Schema**: Confirmed against the official Antigravity built-in documentation (`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\hooks.md`).
+* **Autonomous Continuation Schema**: Confirmed against the official Antigravity built-in documentation (`<appDataDir>/builtin/skills/agy-customizations/docs/hooks.md`).
 * **Secret Redaction**: Confirmed with automated tests verifying that tokens (`sk_live_`, `ghp_`, private keys) are masked before returning in the hook's JSON `reason` payload.
 
 

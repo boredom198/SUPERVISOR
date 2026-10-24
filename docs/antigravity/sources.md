@@ -59,20 +59,20 @@ This index records all official public documentation, platform specifications, a
 
 ---
 
-## 2. Platform Built-In Specifications (Local Machine)
+## 2. Platform Built-In Specifications (Antigravity Builtin Customizations)
 
-The following authoritative specifications were directly inspected on the local workstation:
+The following authoritative specifications were directly inspected in the Antigravity configuration environment:
 
-1. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\hooks.md`**:
+1. **`<appDataDir>/antigravity/builtin/skills/agy-customizations/docs/hooks.md`**:
    - Complete technical specification of hook events, JSON schemas, camelCase field encoding, and exit codes.
-2. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\rules.md`**:
+2. **`<appDataDir>/antigravity/builtin/skills/agy-customizations/docs/rules.md`**:
    - Specification of 24KB per-file limits and 20,000-token rules budget.
-3. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\skills.md`**:
+3. **`<appDataDir>/antigravity/builtin/skills/agy-customizations/docs/skills.md`**:
    - Specification of skill directory structure, frontmatter properties, and progressive disclosure rules.
-4. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\agy-customizations\docs\plugins.md`**:
+4. **`<appDataDir>/antigravity/builtin/skills/agy-customizations/docs/plugins.md`**:
    - Specification of plugin bundling for skills, hooks, and rules.
-5. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\migrate-workflows\SKILL.md`**:
+5. **`<appDataDir>/antigravity/builtin/skills/migrate-workflows/SKILL.md`**:
    - Detailed rationale and deprecation documentation for legacy workflows.
-6. **`C:\Users\DELL\.gemini\antigravity\builtin\skills\antigravity_guide\SKILL.md`**:
+6. **`<appDataDir>/antigravity/builtin/skills/antigravity_guide/SKILL.md`**:
    - Comparative reference covering Antigravity CLI, IDE, App, and Python SDK.
 

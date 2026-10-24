@@ -7,12 +7,14 @@ name = "supervisor"
 version = "1.0.0"
 description = "An AI Coding Supervision and Automatic Repair System"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
 authors = [
     { name = "Lead Software Architect" }
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
