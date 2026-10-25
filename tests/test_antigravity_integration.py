@@ -66,6 +66,39 @@ class TestAntigravityIntegration(unittest.TestCase):
         self.assertEqual(res4["decision"], "allow")
         self.assertIn("user_cancelled", res4["reason"])
 
+    def test_no_tool_call_forwards_failed_test_details_for_repair(self):
+        # Antigravity can emit NO_TOOL_CALL on normal completion. The hook must
+        # review this event and inject the failing test evidence back to the agent.
+        (self.workspace / "app.py").write_text(
+            "def login_allowed(password):\n    return True\n",
+            encoding="utf-8",
+        )
+        tests_dir = self.workspace / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_login.py").write_text(
+            "import unittest\n"
+            "from app import login_allowed\n"
+            "class LoginTests(unittest.TestCase):\n"
+            "    def test_short_password_rejected(self):\n"
+            "        self.assertFalse(login_allowed('123'), 'SHORT_PASSWORD_MUST_BE_REJECTED')\n",
+            encoding="utf-8",
+        )
+        self.state_mgr.initialize_task(
+            prompt="Build login validation and reject short passwords",
+            max_retries=3,
+        )
+
+        payload = {
+            "terminationReason": "NO_TOOL_CALL",
+            "workspacePaths": [str(self.workspace)],
+        }
+        response = self.adapter.handle_stop_payload(payload)
+
+        self.assertEqual(response["decision"], "continue")
+        self.assertIn("[SUPERVISOR AUTO-REPAIR DIRECTIVE]", response["reason"])
+        self.assertIn("test_login.py", response["reason"])
+        self.assertIn("SHORT_PASSWORD_MUST_BE_REJECTED", response["reason"])
+
     # 2. Correct invocation of the shared core
     def test_correct_invocation_of_shared_core(self):
         (self.workspace / "clean.py").write_text("def ping(): return 'pong'\n", encoding="utf-8")

@@ -60,15 +60,25 @@ class SupervisorOrchestrator:
         # Determine prompt: explicit prompt or discovered from transcript matching current workspace
         discovered_prompt = prompt or self.context_collector.find_transcript_prompt()
 
-        # If previous session was in a terminal state (PASSED, RETRY_LIMIT_REACHED, BLOCKED)
-        # and unreviewed changes exist or a new prompt was provided, initialize a fresh session
+        # A different user prompt is a new task even when the previous task is
+        # still FIXES_REQUIRED/REPAIRING. Reusing that task's report here carries
+        # old findings and retry counters into the new prompt, making the latest
+        # report appear to belong to the previous task.
         is_terminal = state.state in {
             LifecycleState.PASSED,
             LifecycleState.RETRY_LIMIT_REACHED,
             LifecycleState.BLOCKED,
         }
-        has_new_prompt = bool(discovered_prompt and state.task and discovered_prompt != state.task.prompt)
-        if is_terminal and (prompt or has_new_prompt or self.has_unreviewed_changes(state)):
+        has_new_prompt = bool(
+            discovered_prompt
+            and state.task
+            and discovered_prompt.strip() != state.task.prompt.strip()
+        )
+        has_unreviewed_changes = self.has_unreviewed_changes(state)
+        should_start_new_task = has_new_prompt or (
+            is_terminal and (bool(prompt) or has_unreviewed_changes)
+        )
+        if should_start_new_task:
             state = self.state_mgr.initialize_task(
                 prompt=discovered_prompt or (prompt or ""),
                 task_id=task_id,

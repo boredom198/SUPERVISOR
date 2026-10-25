@@ -46,7 +46,11 @@ class AntigravityAdapter:
 
         # 2. Check termination reason
         term_reason = payload.get("terminationReason", "model_stop")
-        if term_reason != "model_stop":
+        # Antigravity versions may report normal agent completion as NO_TOOL_CALL
+        # rather than model_stop. Both must enter review; otherwise the hook
+        # allows completion without forwarding findings to the agent.
+        reviewable_termination_reasons = {"model_stop", "NO_TOOL_CALL"}
+        if term_reason not in reviewable_termination_reasons:
             # Allow user cancellation, errors, or step limits to stop without blocking
             return {
                 "decision": "allow",
