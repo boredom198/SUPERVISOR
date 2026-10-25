@@ -193,6 +193,60 @@ cd supervisor
 pip install -e .
 supervisor --help
 ```
+### Setup Prompt:
+
+1. Antigravity
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Antigravity integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install the required hooks, rules, skills, and instructions using the existing files.
+3. Preserve existing project files and Antigravity configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Antigravity can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+2. Claude Code
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Claude Code integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and Claude Code's supported mechanisms.
+3. Preserve existing project files and Claude Code configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Claude Code can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+3. Codex
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Codex integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and Codex's supported mechanisms.
+3. Preserve existing project files and Codex configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Codex can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+4. GitLab Duo
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing GitLab Duo CLI integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and the installed GitLab Duo CLI's supported mechanisms.
+3. Preserve existing project files and GitLab Duo configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that GitLab Duo CLI can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt. If automatic lifecycle hooks are unsupported, configure the documented `/supervisor` command as a fallback and clearly state the limitation.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
 
 ---
 
