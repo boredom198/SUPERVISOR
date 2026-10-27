@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from supervisor.models import Finding, FindingStatus, Severity, SupervisorReport
+from supervisor.models import Finding, FindingStatus, ReviewStatus, Severity, SupervisorReport
+from supervisor.security import SecurityInspector
 
 
 class RepairHandoff:
@@ -28,7 +29,9 @@ class RepairHandoff:
         ]
 
         if not material_findings:
-            return "No material findings requiring repair. All checks have passed."
+            if report.overall_status == ReviewStatus.PASSED:
+                return "No material findings requiring repair. All executed checks passed; untested behavior is not proven correct."
+            return "No material findings requiring automatic repair, but verification is incomplete or blocked. Review the report limitations and add/run relevant tests before treating the task as complete."
 
         lines = []
         lines.append("## [SUPERVISOR AUTO-REPAIR DIRECTIVE]")
@@ -66,7 +69,7 @@ class RepairHandoff:
         lines.append("4. Once repairs are completed, execute the relevant tests/verification steps.")
         lines.append("")
 
-        directive_text = "\n".join(lines)
+        directive_text = SecurityInspector.redact_secret("\n".join(lines))
 
         # Save to .supervisor directory
         out_file = self.workspace_root / ".supervisor" / "repair_directives.md"

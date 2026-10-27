@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from supervisor.identifiers import stable_suffix
+
 import ast
 import json
 import os
@@ -24,6 +26,7 @@ from supervisor.models import (
     TestResult,
 )
 from supervisor.runner import TestRunner
+from supervisor.language_inspector import LanguageInspector, SOURCE_EXTENSIONS
 from supervisor.security import SecurityInspector
 
 
@@ -40,6 +43,7 @@ class CodeInspector:
         ).resolve()
         self.security = SecurityInspector(self.workspace_root)
         self.runner = TestRunner(self.workspace_root)
+        self.language_inspector = LanguageInspector(self.workspace_root)
 
     def inspect_python_file(self, rel_path: str, content: str) -> List[Finding]:
         """Inspects Python source for syntax errors, AST structural problems, security, and error handling."""
@@ -52,7 +56,7 @@ class CodeInspector:
         except SyntaxError as e:
             findings.append(
                 Finding(
-                    finding_id=f"SYNTAX-{abs(hash(rel_path + str(e.lineno))) % 10000:04d}",
+                    finding_id=f"SYNTAX-{stable_suffix(rel_path, e.lineno)}",
                     severity=Severity.CRITICAL,
                     category=Category.BUG,
                     file_path=rel_path,
@@ -136,7 +140,7 @@ class CodeInspector:
         for lineno in visitor.bare_excepts:
             findings.append(
                 Finding(
-                    finding_id=f"ERR-SILENT-{abs(hash(rel_path + str(lineno))) % 10000:04d}",
+                    finding_id=f"ERR-SILENT-{stable_suffix(rel_path, lineno)}",
                     severity=Severity.MEDIUM,
                     category=Category.ERROR_HANDLING,
                     file_path=rel_path,
@@ -156,7 +160,7 @@ class CodeInspector:
         for func_name, lineno in visitor.not_implemented_nodes:
             findings.append(
                 Finding(
-                    finding_id=f"REQ-NIE-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
+                    finding_id=f"REQ-NIE-{stable_suffix(rel_path, lineno, func_name)}",
                     severity=Severity.HIGH,
                     category=Category.MISSING_REQUIREMENT,
                     file_path=rel_path,
@@ -180,7 +184,7 @@ class CodeInspector:
                     continue
                 findings.append(
                     Finding(
-                        finding_id=f"STUB-{abs(hash(rel_path + str(lineno) + func_name)) % 10000:04d}",
+                        finding_id=f"STUB-{stable_suffix(rel_path, lineno, func_name)}",
                     severity=Severity.MEDIUM,
                     category=Category.MISSING_REQUIREMENT,
                     file_path=rel_path,
@@ -213,7 +217,7 @@ class CodeInspector:
         except json.JSONDecodeError as e:
             findings.append(
                 Finding(
-                    finding_id=f"JSON-{abs(hash(rel_path + str(e.lineno))) % 10000:04d}",
+                    finding_id=f"JSON-{stable_suffix(rel_path, e.lineno)}",
                     severity=Severity.HIGH,
                     category=Category.DEPENDENCY_CONFIG,
                     file_path=rel_path,
@@ -243,7 +247,7 @@ class CodeInspector:
             lineno = getattr(e, "lineno", None)
             findings.append(
                 Finding(
-                    finding_id=f"TOML-{abs(hash(rel_path + str(lineno or 1))) % 10000:04d}",
+                    finding_id=f"TOML-{stable_suffix(rel_path, lineno or 1)}",
                     severity=Severity.HIGH,
                     category=Category.DEPENDENCY_CONFIG,
                     file_path=rel_path,
@@ -277,7 +281,7 @@ class CodeInspector:
                 matched_text = m.group(0)
                 findings.append(
                     Finding(
-                        finding_id=f"TODO-{abs(hash(rel_path + str(i))) % 10000:04d}",
+                        finding_id=f"TODO-{stable_suffix(rel_path, i)}",
                         severity=Severity.LOW,
                         category=Category.MISSING_REQUIREMENT,
                         file_path=rel_path,
@@ -305,6 +309,8 @@ class CodeInspector:
             findings.extend(self.inspect_json_file(rel_path, content))
         elif rel_path.endswith(".toml"):
             findings.extend(self.inspect_toml_file(rel_path, content))
+        elif Path(rel_path).suffix.lower() in SOURCE_EXTENSIONS:
+            findings.extend(self.language_inspector.inspect(rel_path, content))
         else:
             # Check placeholders on general text/code files
             findings.extend(self.inspect_placeholders(rel_path, content))

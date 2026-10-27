@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from supervisor.models import FindingStatus, LifecycleState, Severity, SupervisorReport
+from supervisor.models import FindingStatus, LifecycleState, ReviewStatus, Severity, SupervisorReport
 from supervisor.orchestrator import SupervisorOrchestrator
 from supervisor.repair import RepairHandoff
 from supervisor.security import SecurityInspector
@@ -66,6 +66,7 @@ class CodexAdapter:
         if curr_state.state in {
             LifecycleState.PASSED,
             LifecycleState.RETRY_LIMIT_REACHED,
+            LifecycleState.VERIFICATION_INCOMPLETE,
             LifecycleState.BLOCKED,
         }:
             context = orchestrator.context_collector.collect()
@@ -134,12 +135,24 @@ class CodexAdapter:
         updated_state = state_mgr.load()
 
         # 8. Formulate output decision based on report findings and cycle limits
+        if report.overall_status == ReviewStatus.BLOCKED or report.state == LifecycleState.BLOCKED or (report.blocker_reason and not report.has_material_issues):
+            return (
+                0,
+                {"decision": "allow", "reason": f"SUPERVISOR BLOCKED at cycle {report.cycle}: {report.blocker_reason or 'A required validation could not run.'} No pass is claimed."},
+                "",
+            )
+        if report.overall_status == ReviewStatus.VERIFICATION_INCOMPLETE or report.state == LifecycleState.VERIFICATION_INCOMPLETE:
+            return (
+                0,
+                {"decision": "allow", "reason": f"SUPERVISOR VERIFICATION_INCOMPLETE at cycle {report.cycle}. Available checks do not establish a pass; inspect limitations and run relevant tests."},
+                "",
+            )
         if not report.has_material_issues:
             return (
                 0,
                 {
                     "decision": "allow",
-                    "reason": f"SUPERVISOR verification PASSED at cycle {report.cycle}. All checks verified.",
+                    "reason": f"SUPERVISOR verification PASSED at cycle {report.cycle}. All executed checks passed; untested behavior is not proven correct.",
                 },
                 "",
             )

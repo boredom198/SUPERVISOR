@@ -87,9 +87,9 @@ class SupervisorState:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> SupervisorState:
-        max_retries_val = d.get("max_retries", 3)
-        cycle_val = d.get("cycle", 1)
-        if max_retries_val > 0 and cycle_val > max_retries_val:
+        max_retries_val = max(1, int(d.get("max_retries", 3)))
+        cycle_val = max(1, int(d.get("cycle", 1)))
+        if cycle_val > max_retries_val:
             cycle_val = max_retries_val
         return cls(
             state=LifecycleState(d.get("state", LifecycleState.IMPLEMENTING.value)),
@@ -163,7 +163,8 @@ class StateManager:
         max_retries: int = 3,
     ) -> SupervisorState:
         """Initializes a new task in Stage 1."""
-        tid = task_id or f"task_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        max_retries = max(1, int(max_retries))
+        tid = task_id or f"task_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
         task = TaskSpec(
             task_id=tid,
             prompt=prompt,
@@ -231,6 +232,10 @@ class StateManager:
         curr = self.load()
         curr.latest_report = report
         if report.blocker_reason:
+            curr.state = LifecycleState.BLOCKED
+        elif report.overall_status.value == "VERIFICATION_INCOMPLETE":
+            curr.state = LifecycleState.VERIFICATION_INCOMPLETE
+        elif report.overall_status.value == "BLOCKED":
             curr.state = LifecycleState.BLOCKED
         elif not report.has_material_issues:
             curr.state = LifecycleState.PASSED

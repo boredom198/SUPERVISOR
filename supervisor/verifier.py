@@ -11,6 +11,7 @@ from supervisor.models import (
     Finding,
     FindingStatus,
     LifecycleState,
+    ReviewStatus,
     Severity,
     SupervisorReport,
 )
@@ -69,14 +70,24 @@ class VerificationEngine:
                 if f.severity in {Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM}:
                     new_regressions.append(f)
 
-        passed = len(unresolved) == 0 and len(new_regressions) == 0
-        new_report.state = LifecycleState.PASSED if passed else LifecycleState.FIXES_REQUIRED
+        verification_incomplete = new_report.overall_status in {ReviewStatus.VERIFICATION_INCOMPLETE, ReviewStatus.BLOCKED}
+        passed = len(unresolved) == 0 and len(new_regressions) == 0 and not verification_incomplete and not new_report.has_material_issues
+        if passed:
+            new_report.state = LifecycleState.PASSED
+        elif new_report.overall_status == ReviewStatus.BLOCKED and not new_report.has_material_issues:
+            new_report.state = LifecycleState.BLOCKED
+        elif verification_incomplete and not new_report.has_material_issues:
+            new_report.state = LifecycleState.VERIFICATION_INCOMPLETE
+        else:
+            new_report.state = LifecycleState.FIXES_REQUIRED
 
         summary_parts = []
         if passed:
             summary_parts.append(
                 f"Verification PASSED at cycle {cycle}. All {len(resolved)} previous issues resolved. No regressions detected."
             )
+        elif verification_incomplete and not new_report.has_material_issues:
+            summary_parts.append(f"Verification INCOMPLETE at cycle {cycle}. Some checks could not establish a reliable pass; inspect the limitations and test results.")
         else:
             summary_parts.append(
                 f"Verification FAILED at cycle {cycle}. {len(unresolved)} unresolved issues, {len(new_regressions)} regressions."

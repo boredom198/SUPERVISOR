@@ -40,6 +40,27 @@ class TestReviewer(unittest.TestCase):
         report = self.reviewer.review(context, cycle=1)
         self.assertFalse(report.has_material_issues)
 
+    def test_python_tests_do_not_certify_uncovered_javascript(self):
+        (self.workspace / "calculator.js").write_text("function add(a, b) { return a + b; }\n", encoding="utf-8")
+        tests_dir = self.workspace / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_python_side.py").write_text(
+            "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): self.assertEqual(1 + 1, 2)\n",
+            encoding="utf-8",
+        )
+        context = WorkspaceContext(
+            task=TaskSpec(task_id="t3", prompt="Build calculator"),
+            workspace_root=self.workspace,
+            file_contents={
+                "calculator.js": "function add(a, b) { return a + b; }\n",
+                "tests/test_python_side.py": "import unittest\nclass T(unittest.TestCase):\n    def test_ok(self): self.assertEqual(1 + 1, 2)\n",
+            },
+        )
+        report = self.reviewer.review(context, cycle=1)
+        self.assertEqual(report.overall_status.value, "VERIFICATION_INCOMPLETE")
+        self.assertNotEqual(report.state.value, "PASSED")
+        self.assertTrue(any("JavaScript/TypeScript" in item for item in report.limitations))
+
 
 if __name__ == "__main__":
     unittest.main()

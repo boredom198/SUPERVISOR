@@ -49,10 +49,13 @@ class TestVerifier(unittest.TestCase):
 
         # Repaired file
         fixed_code = "def valid():\n    return 42\n"
+        test_code = "def test_ok():\n    assert 1 + 1 == 2\n"
+        (self.workspace / "app.py").write_text(fixed_code, encoding="utf-8")
+        (self.workspace / "test_app.py").write_text(test_code, encoding="utf-8")
         context = WorkspaceContext(
             task=TaskSpec(task_id="task_1", prompt="Fix app"),
             workspace_root=self.workspace,
-            file_contents={"app.py": fixed_code, "test_app.py": "def test_ok(): pass\n"},
+            file_contents={"app.py": fixed_code, "test_app.py": test_code},
         )
 
         summary = self.verifier.verify_cycle(

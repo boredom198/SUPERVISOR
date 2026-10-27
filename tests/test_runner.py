@@ -68,6 +68,14 @@ class TestTestRunner(unittest.TestCase):
         self.assertFalse(res.passed)
         self.assertIn("timeout", res.reason.lower())
 
+
+    def test_zero_test_unittest_run_is_not_reported_as_passed(self):
+        (self.workspace / "tests").mkdir()
+        (self.workspace / "tests" / "test_empty.py").write_text("pass\n", encoding="utf-8")
+        result = self.runner.execute_all()[0]
+        self.assertEqual(result.status, TestStatus.NOT_AVAILABLE)
+        self.assertFalse(result.passed)
+
     def test_output_capping(self):
         capped_runner = TestRunner(self.workspace, max_output_chars=50)
         res = capped_runner.run_command("python -c \"print('A' * 200)\"")

@@ -294,6 +294,7 @@ class TestAntigravityIntegration(unittest.TestCase):
         self.assertTrue(any(t.status == TestStatus.NOT_AVAILABLE for t in report.tests_run))
         self.assertIn("No automated test suite discovered in workspace.", report.limitations)
         self.assertEqual(report.overall_status, ReviewStatus.VERIFICATION_INCOMPLETE)
+        self.assertEqual(report.state, LifecycleState.VERIFICATION_INCOMPLETE)
 
     # 14. Explicit report-only invocation
     def test_explicit_report_only_invocation(self):

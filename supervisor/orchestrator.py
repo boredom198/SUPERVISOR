@@ -53,6 +53,7 @@ class SupervisorOrchestrator:
         task_id: Optional[str] = None,
         test_command: Optional[str] = None,
         report_only: bool = False,
+        max_retries: Optional[int] = None,
     ) -> SupervisorReport:
         """Runs a review cycle, updates state, and generates reports."""
         state = self.state_mgr.load()
@@ -67,6 +68,7 @@ class SupervisorOrchestrator:
         is_terminal = state.state in {
             LifecycleState.PASSED,
             LifecycleState.RETRY_LIMIT_REACHED,
+            LifecycleState.VERIFICATION_INCOMPLETE,
             LifecycleState.BLOCKED,
         }
         has_new_prompt = bool(
@@ -82,8 +84,12 @@ class SupervisorOrchestrator:
             state = self.state_mgr.initialize_task(
                 prompt=discovered_prompt or (prompt or ""),
                 task_id=task_id,
-                max_retries=state.max_retries,
+                max_retries=max_retries if max_retries is not None else state.max_retries,
             )
+        elif max_retries is not None:
+            state.max_retries = max(1, int(max_retries))
+            state.cycle = min(max(1, state.cycle), state.max_retries)
+            self.state_mgr.save(state)
 
         # Guard against duplicate recursive review if already reviewing
         if state.state == LifecycleState.REVIEWING:
@@ -122,12 +128,18 @@ class SupervisorOrchestrator:
             if report.blocker_reason or report.overall_status == ReviewStatus.BLOCKED:
                 self.state_mgr.transition_to(
                     LifecycleState.BLOCKED,
-                    f"Review blocked: {report.blocker_reason or 'Environment blocker.'}",
+                    f"Review blocked: {report.blocker_reason or 'A validation command was blocked.'}",
                 )
                 report.state = LifecycleState.BLOCKED
+            elif report.overall_status == ReviewStatus.VERIFICATION_INCOMPLETE:
+                self.state_mgr.transition_to(
+                    LifecycleState.VERIFICATION_INCOMPLETE,
+                    "Review has no material static findings, but behavioral verification is incomplete.",
+                )
+                report.state = LifecycleState.VERIFICATION_INCOMPLETE
             else:
                 self.state_mgr.transition_to(
-                    LifecycleState.PASSED, "Implementation passed all checks."
+                    LifecycleState.PASSED, "All executed checks and tests passed."
                 )
                 report.state = LifecycleState.PASSED
         else:
@@ -225,8 +237,17 @@ class SupervisorOrchestrator:
                     )
                 report.state = LifecycleState.PASSED
         else:
+            # Incomplete verification is not a pass and should not trigger an endless repair loop.
+            if report.overall_status == ReviewStatus.BLOCKED and not report.has_material_issues:
+                report.state = LifecycleState.BLOCKED
+                if not report_only:
+                    self.state_mgr.transition_to(LifecycleState.BLOCKED, report.blocker_reason or "A validation command was blocked.")
+            elif report.overall_status == ReviewStatus.VERIFICATION_INCOMPLETE and not report.has_material_issues:
+                report.state = LifecycleState.VERIFICATION_INCOMPLETE
+                if not report_only:
+                    self.state_mgr.transition_to(LifecycleState.VERIFICATION_INCOMPLETE, "Verification could not establish a reliable pass.")
             # Verification failed: check if retry limit is reached
-            if report_only:
+            elif report_only:
                 report.state = LifecycleState.FIXES_REQUIRED
             elif state.cycle >= state.max_retries:
                 self.state_mgr.transition_to(

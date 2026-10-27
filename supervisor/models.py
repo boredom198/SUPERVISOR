@@ -19,6 +19,7 @@ class LifecycleState(str, Enum):
     REPAIRING = "REPAIRING"
     VERIFYING = "VERIFYING"
     PASSED = "PASSED"
+    VERIFICATION_INCOMPLETE = "VERIFICATION_INCOMPLETE"
     BLOCKED = "BLOCKED"
     RETRY_LIMIT_REACHED = "RETRY_LIMIT_REACHED"
 
@@ -293,11 +294,17 @@ class SupervisorReport:
     )
 
     def __post_init__(self):
+        # Derive status from evidence so callers cannot accidentally label an
+        # untested or blocked run as PASSED.
         if self.has_material_issues:
             self.overall_status = ReviewStatus.FIXES_REQUIRED
-        elif self.blocker_reason:
+        elif self.blocker_reason or any(t.status == TestStatus.BLOCKED for t in self.tests_run):
             self.overall_status = ReviewStatus.BLOCKED
-        elif any(t.status == TestStatus.NOT_AVAILABLE for t in self.tests_run):
+        elif (
+            not self.tests_run
+            or any(t.status in {TestStatus.NOT_AVAILABLE, TestStatus.NOT_RUN, TestStatus.PARTIAL} for t in self.tests_run)
+            or any("language-specific validation is incomplete" in limitation.lower() for limitation in self.limitations)
+        ):
             self.overall_status = ReviewStatus.VERIFICATION_INCOMPLETE
         else:
             self.overall_status = ReviewStatus.PASSED

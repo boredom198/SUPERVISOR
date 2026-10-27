@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -50,6 +51,8 @@ class ContextCollector:
     }
 
     MAX_FILE_BYTES: int = 1_000_000  # 1 MB per file
+    MAX_WORKSPACE_FILES: int = 5000
+    MAX_WORKSPACE_BYTES: int = 50_000_000
     TEXT_EXTENSIONS: Set[str] = {
         ".py",
         ".json",
@@ -75,7 +78,16 @@ class ContextCollector:
         ".h",
         ".java",
         ".kt",
+        ".xml", ".ini", ".cfg", ".properties", ".vue", ".svelte",
+        ".php", ".rb", ".swift", ".dart", ".scala", ".ex", ".exs",
+        ".mod", ".gradle", ".kts", ".csproj", ".sln", ".lock",
     }
+    TEXT_FILENAMES: Set[str] = {".env", ".npmrc", ".pypirc", ".netrc", "dockerfile", "makefile"}
+
+    @classmethod
+    def is_text_file(cls, path: Path) -> bool:
+        name = path.name.lower()
+        return path.suffix.lower() in cls.TEXT_EXTENSIONS or name in cls.TEXT_FILENAMES or name.startswith(".env.")
 
     def __init__(self, workspace_root: Optional[Path | str] = None):
         self.workspace_root = (
@@ -86,7 +98,8 @@ class ContextCollector:
         """Verifies that a path does not escape the workspace root via directory traversal or symlinks."""
         try:
             resolved = target_path.resolve()
-            return str(resolved).startswith(str(self.workspace_root))
+            resolved.relative_to(self.workspace_root)
+            return True
         except Exception:
             return False
 
@@ -131,7 +144,8 @@ class ContextCollector:
                     if transcript_path and c == Path(transcript_path):
                         return prompt
                     try:
-                        content_sample = c.read_text(encoding="utf-8", errors="ignore")[:50000]
+                        with c.open("r", encoding="utf-8", errors="ignore") as sample_file:
+                            content_sample = sample_file.read(50000)
                         if workspace_name in content_sample.lower() or workspace_str in content_sample.lower():
                             return prompt
                     except OSError:
@@ -145,7 +159,7 @@ class ContextCollector:
         """Reads transcript.jsonl and finds the latest USER_INPUT message."""
         try:
             with open(transcript_file, "r", encoding="utf-8", errors="replace") as f:
-                lines = f.readlines()
+                lines = deque(f, maxlen=2000)
             for line in reversed(lines):
                 line = line.strip()
                 if not line:
@@ -184,6 +198,7 @@ class ContextCollector:
 
     def inspect_git(self) -> Tuple[bool, List[str], List[str], str]:
         """Runs git status and git diff to capture changed and untracked files."""
+        # In linked worktrees and submodules, .git is a file rather than a directory.
         is_git = (self.workspace_root / ".git").exists()
         if not is_git:
             return False, [], [], ""
@@ -194,25 +209,40 @@ class ContextCollector:
 
         try:
             status_res = subprocess.run(
-                ["git", "status", "--porcelain", "-uall"],
+                ["git", "status", "--porcelain=v1", "-z", "-uall"],
                 cwd=str(self.workspace_root),
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=5,
             )
             if status_res.returncode == 0:
-                for line in status_res.stdout.splitlines():
-                    if not line.strip():
+                # NUL-delimited porcelain output preserves spaces and special characters.
+                entries = status_res.stdout.split("\0")
+                idx = 0
+                while idx < len(entries):
+                    entry = entries[idx]
+                    idx += 1
+                    if not entry:
                         continue
-                    prefix = line[:2]
-                    filepath = line[3:].strip()
-                    # Skip files inside ignored directories
-                    if any(part in filepath.replace("\\", "/").split("/") for part in self.IGNORED_DIRS):
-                        continue
-                    if prefix.startswith("?"):
-                        untracked.append(filepath)
-                    else:
-                        changed.append(filepath)
+                    prefix = entry[:2]
+                    filepath = entry[3:] if len(entry) > 3 else ""
+                    paths_for_entry = [filepath]
+                    # Rename/copy records include a second NUL-delimited path.
+                    if ("R" in prefix or "C" in prefix) and idx < len(entries) and entries[idx]:
+                        paths_for_entry.append(entries[idx])
+                        idx += 1
+                    for candidate in paths_for_entry:
+                        candidate = candidate.replace("\\", "/")
+                        if not candidate:
+                            continue
+                        # Skip files inside ignored directories.
+                        if any(part in candidate.split("/") for part in self.IGNORED_DIRS):
+                            continue
+                        if prefix.startswith("?"):
+                            untracked.append(candidate)
+                        else:
+                            changed.append(candidate)
 
             # Get diff of modified/staged files
             diff_res = subprocess.run(
@@ -221,6 +251,7 @@ class ContextCollector:
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=5,
             )
             if diff_res.returncode == 0:
                 diff_text = diff_res.stdout
@@ -231,9 +262,10 @@ class ContextCollector:
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=5,
                 )
                 diff_text = diff_res2.stdout
-        except (subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError, TimeoutError):
             diff_text = ""
 
         return True, changed, untracked, diff_text
@@ -241,6 +273,7 @@ class ContextCollector:
     def read_workspace_files(self, paths: Optional[List[str]] = None) -> Dict[str, str]:
         """Reads contents of specified files, or scans text files in workspace if paths is None."""
         contents: Dict[str, str] = {}
+        total_bytes = 0
 
         if paths is not None:
             for p in paths:
@@ -248,9 +281,12 @@ class ContextCollector:
                 if not self.is_safe_path(file_path):
                     continue
                 if file_path.is_file():
+                    if not self.is_text_file(file_path):
+                        continue
                     try:
-                        if file_path.stat().st_size <= self.MAX_FILE_BYTES:
+                        if file_path.stat().st_size <= self.MAX_FILE_BYTES and total_bytes + file_path.stat().st_size <= self.MAX_WORKSPACE_BYTES and len(contents) < self.MAX_WORKSPACE_FILES:
                             contents[p] = file_path.read_text(encoding="utf-8", errors="replace")
+                            total_bytes += file_path.stat().st_size
                     except OSError:
                         contents[p] = ""
                 elif file_path.is_dir():
@@ -258,14 +294,17 @@ class ContextCollector:
                         dirs[:] = [d for d in dirs if d not in self.IGNORED_DIRS]
                         for f in files:
                             sub_path = Path(root) / f
-                            if sub_path.suffix.lower() not in self.TEXT_EXTENSIONS:
+                            if not self.is_text_file(sub_path):
                                 continue
                             if not self.is_safe_path(sub_path):
                                 continue
                             try:
-                                if sub_path.is_file() and sub_path.stat().st_size <= self.MAX_FILE_BYTES:
-                                    rel = os.path.relpath(str(sub_path), str(self.workspace_root))
-                                    contents[rel] = sub_path.read_text(encoding="utf-8", errors="replace")
+                                if sub_path.is_file():
+                                    size = sub_path.stat().st_size
+                                    if size <= self.MAX_FILE_BYTES and total_bytes + size <= self.MAX_WORKSPACE_BYTES and len(contents) < self.MAX_WORKSPACE_FILES:
+                                        rel = os.path.relpath(str(sub_path), str(self.workspace_root))
+                                        contents[rel] = sub_path.read_text(encoding="utf-8", errors="replace")
+                                        total_bytes += size
                             except OSError:
                                 continue
             return contents
@@ -276,14 +315,17 @@ class ContextCollector:
             dirs[:] = [d for d in dirs if d not in self.IGNORED_DIRS]
             for file in files:
                 fpath = Path(root) / file
-                if fpath.suffix.lower() not in self.TEXT_EXTENSIONS:
+                if not self.is_text_file(fpath):
                     continue
                 if not self.is_safe_path(fpath):
                     continue
                 try:
-                    if fpath.is_file() and fpath.stat().st_size <= self.MAX_FILE_BYTES:
-                        rel = os.path.relpath(str(fpath), str(self.workspace_root))
-                        contents[rel] = fpath.read_text(encoding="utf-8", errors="replace")
+                    if fpath.is_file():
+                        size = fpath.stat().st_size
+                        if size <= self.MAX_FILE_BYTES and total_bytes + size <= self.MAX_WORKSPACE_BYTES and len(contents) < self.MAX_WORKSPACE_FILES:
+                            rel = os.path.relpath(str(fpath), str(self.workspace_root))
+                            contents[rel] = fpath.read_text(encoding="utf-8", errors="replace")
+                            total_bytes += size
                 except OSError:
                     continue
 
@@ -335,9 +377,10 @@ class ContextCollector:
         )
 
     def compute_workspace_fingerprint(self) -> str:
-        """Computes a deterministic hash of workspace files, sizes, and mtimes.
+        """Computes a deterministic hash of text-file paths, metadata, and contents.
 
-        Guarantees change detection across both Git and non-Git repositories.
+        Detects changes across Git and non-Git repositories, including same-size edits
+        whose modification timestamp was preserved.
         """
         import hashlib
         h = hashlib.sha256()
@@ -348,12 +391,15 @@ class ContextCollector:
                     fpath = Path(root) / f
                     if not self.is_safe_path(fpath):
                         continue
-                    if fpath.suffix.lower() not in self.TEXT_EXTENSIONS:
+                    if not self.is_text_file(fpath):
                         continue
                     try:
                         st = fpath.stat()
                         rel = os.path.relpath(str(fpath), str(self.workspace_root))
                         h.update(f"{rel}:{st.st_size}:{st.st_mtime_ns}\n".encode("utf-8"))
+                        with fpath.open("rb") as file_obj:
+                            for chunk in iter(lambda: file_obj.read(65536), b""):
+                                h.update(chunk)
                     except OSError:
                         continue
         except OSError:

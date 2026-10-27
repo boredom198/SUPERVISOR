@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python: 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](pyproject.toml)
-[![Tests: 141 Passed](https://img.shields.io/badge/tests-141%20passed-brightgreen.svg)](tests/)
+[![Tests: 148 collected](https://img.shields.io/badge/tests-148%20collected-blue.svg)](tests/)
 
 **SUPERVISOR** is an autonomous supervision and closed-loop repair engine designed for AI coding agents. It intercepts agent completion events, runs deterministic AST analysis, dynamic tests, security audits, and regression checks, and injects actionable repair directives directly back into agent context when material defects are identified.
 
@@ -141,8 +141,9 @@ flowchart LR
 | `FIXES_REQUIRED` | Material defects (Critical, High, or Medium severity) found; repair handoff directives created. |
 | `REPAIRING` | Directives injected into agent context; the agent fixes code autonomously without human prompts. |
 | `VERIFYING` | SUPERVISOR evaluates repairs, checks that previous defects are resolved, and watches for regressions. |
-| `PASSED` | All verification checks pass with concrete evidence; task concludes successfully. |
-| `BLOCKED` | External prerequisites missing (e.g. required system dependency or missing environment). |
+| `PASSED` | All executed verification checks pass and the configured test commands complete successfully; this does not prove untested behavior is correct. |
+| `VERIFICATION_INCOMPLETE` | No runnable tests were found or some checks could not establish a reliable pass; this is not a success state. |
+| `BLOCKED` | A required validation command could not run or an external prerequisite is missing. |
 | `RETRY_LIMIT_REACHED` | Maximum retry cycles exhausted while material defects remain unresolved. |
 
 ---
@@ -193,6 +194,60 @@ cd supervisor
 pip install -e .
 supervisor --help
 ```
+### Setup Prompt:
+
+1. Antigravity
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Antigravity integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install the required hooks, rules, skills, and instructions using the existing files.
+3. Preserve existing project files and Antigravity configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Antigravity can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+2. Claude Code
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Claude Code integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and Claude Code's supported mechanisms.
+3. Preserve existing project files and Claude Code configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Claude Code can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+3. Codex
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing Codex integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and Codex's supported mechanisms.
+3. Preserve existing project files and Codex configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that Codex can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
+4. GitLab Duo
+
+Set up SUPERVISOR in this workspace using the existing repository: https://github.com/boredom198/SUPERVISOR
+
+1. Inspect its README and existing GitLab Duo CLI integration files before setup.
+2. Configure the integration in the **active workspace root**, not merely inside a nested SUPERVISOR repository. Install and configure the required hooks, commands, rules, and instructions using the existing files and the installed GitLab Duo CLI's supported mechanisms.
+3. Preserve existing project files and GitLab Duo configurations. Merge safely; never overwrite user-owned files blindly.
+4. Install required dependencies and initialize SUPERVISOR for this project.
+5. Verify that GitLab Duo CLI can discover and execute the integration, that SUPERVISOR can review code, and that detected defects can trigger automatic repair and subsequent verification without another user prompt. If automatic lifecycle hooks are unsupported, configure the documented `/supervisor` command as a fallback and clearly state the limitation.
+6. Report what was configured, the verification results, and anything that remains unverified. Do not claim success based only on unit tests or manually executed hooks.
+
+Keep the setup minimal. Do not redesign SUPERVISOR, add unrelated features, or push changes to GitHub.
+
 
 ---
 
@@ -233,7 +288,7 @@ python -m supervisor review
 Options:
 - `--report-only`: Generate findings and reports without triggering repair handoff transitions.
 - `--max-retries <N>`: Set the maximum allowed repair cycles before halting (default: `3`).
-- `--timeout <seconds>`: Set test execution timeout in seconds (default: `30`).
+- `SUPERVISOR_TEST_TIMEOUT=<seconds>` environment variable: Set test execution timeout (default: `60`, clamped to 1–600 seconds).
 
 ### `verify` — Post-Repair Verification Gate
 Verifies whether previously identified defects were repaired and confirms no regressions were introduced.
@@ -288,13 +343,13 @@ When invoked with `--report-only`:
 ```bash
 python -m supervisor review --report-only
 ```
-SUPERVISOR produces the full Markdown report (`.supervisor/latest_report.md`) and JSON report (`.supervisor/latest_report.json`), but leaves the lifecycle state in `REVIEWING` without advancing the retry counter or formatting repair directives.
+SUPERVISOR produces the Markdown report (`.supervisor/latest_report.md`) and JSON report (`.supervisor/latest_report.json`) without generating repair directives. The lifecycle state still records the review outcome (`FIXES_REQUIRED`, `VERIFICATION_INCOMPLETE`, `BLOCKED`, or `PASSED`) so a report-only run cannot be mistaken for a successful verification.
 
 ---
 
 ## 13. Testing Instructions
 
-SUPERVISOR comes with a comprehensive test suite of 141 automated unit and integration tests across 23 test modules:
+SUPERVISOR currently contains 148 collected automated unit and integration tests across 24 test modules. Run suites individually if a full run exceeds your environment's time budget:
 
 ```bash
 # Run the entire test suite
@@ -316,7 +371,7 @@ python -m supervisor verify
 
 - **Local Execution**: All checks, AST analysis, and test runs execute strictly on the local machine. No code, diffs, or prompts are sent to external cloud APIs or third-party servers by SUPERVISOR.
 - **Credential & Secret Protection**: `supervisor.security` scans for standard secret patterns (AWS keys, OpenAI tokens, GitHub PATs, private keys) and automatically replaces sensitive values with masked placeholders (`sk_live_********************`) in reports and agent prompts.
-- **Process Isolation**: Workspace tests run in isolated child processes with explicit timeout enforcement to prevent runaway commands or frozen subshells.
+- **Test Execution Safety**: Test commands run without a shell, output is captured to temporary files with bounded report excerpts, and a timeout is enforced. This is not a security sandbox: running repository-controlled test scripts can execute code with the current user's permissions. Review untrusted repositories before allowing automatic test execution; child processes spawned by a test may outlive a timed-out parent on some platforms.
 
 ---
 

@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_p.add_argument("--task-id", "-t", type=str, default=None, help="Explicit task ID")
     review_p.add_argument("--test-cmd", type=str, default=None, help="Explicit test command to run")
     review_p.add_argument("--report-only", action="store_true", help="Generate report without initiating repair handoff")
-    review_p.add_argument("--max-retries", type=int, default=3, help="Max repair retry limit")
+    review_p.add_argument("--max-retries", type=int, default=None, help="Max repair retry limit for the task")
 
     # verify
     verify_p = subparsers.add_parser("verify", help="Verify corrections after coding agent repairs")
@@ -95,10 +95,13 @@ def main(argv: list[str] | None = None) -> int:
             task_id=args.task_id,
             test_command=args.test_cmd,
             report_only=args.report_only,
+            max_retries=args.max_retries,
         )
         md = reporter.to_markdown(report)
         print(md)
         if report.state == LifecycleState.BLOCKED or report.blocker_reason:
+            return 2
+        if report.state == LifecycleState.VERIFICATION_INCOMPLETE:
             return 2
         return 0 if not report.has_material_issues else 1
 
@@ -110,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         md = reporter.to_markdown(report)
         print(md)
         if report.state == LifecycleState.BLOCKED or report.blocker_reason:
+            return 2
+        if report.state == LifecycleState.VERIFICATION_INCOMPLETE:
             return 2
         return 0 if not report.has_material_issues else 1
 

@@ -68,7 +68,10 @@ class ReportGenerator:
         # Findings Summary Table
         lines.append("## Findings Overview")
         if not report.findings:
-            lines.append("> [!NOTE]\n> No findings were identified. Implementation passed verification.\n")
+            if report.overall_status.value == "PASSED":
+                lines.append("> [!NOTE]\n> No findings were identified. All executed verification checks passed; untested behavior is not proven correct.\n")
+            else:
+                lines.append("> [!WARNING]\n> No findings were identified, but verification is incomplete or blocked. Do not interpret this as a pass.\n")
         else:
             lines.append("| Finding ID | Severity | Category | Confidence | Status | File & Location | Description |")
             lines.append("| :--- | :--- | :--- | :--- | :--- | :--- | :--- |")
